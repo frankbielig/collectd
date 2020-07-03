@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /**
  * collectd - src/intel-nvme.h
  * MIT License
@@ -26,6 +27,8 @@
  *   Bartlomiej Kotlowski <bartlomiej.kotlowski@intel.com>
  * **/
 
+=======
+>>>>>>> c9b37a9a (Add NVMe attributies to SMART plugin)
 #include <linux/types.h>
 
 #ifdef __CHECKER__
