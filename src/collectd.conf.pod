@@ -10542,6 +10542,37 @@ traffic (e.E<nbsp>g. due to headers and retransmission). If you want to
 collect on-wire traffic you could, for example, use the logging facilities of
 iptables to feed data for the guest IPs into the iptables plugin.
 
+=head2 Plugin C<write_dlt>
+
+The C<write_dlt> plugin send metrics as INFO messages to Diagnostic Log 
+and Trace daemon.
+
+This plugin supports two output formats: I<Graphite> and I<JSON>.
+
+Synopsis:
+
+ <Plugin write_dlt>
+   <DLT>
+     AppID ABCD
+   </DLT>
+   Format Graphite
+ </Plugin>
+
+=over 4
+
+=item B<Format> I<Format>
+
+The output format to use. Can be one of C<Graphite> or C<JSON>.
+
+=item B<AppID> I<id>
+
+Customization of application identifier used for tagging DLT messages. 
+By default the value is set to "CLTD". Because of the DLG standard, 
+please note that only the first four characters are used for the ID. 
+
+=back
+
+
 =head2 Plugin C<write_graphite>
 
 The C<write_graphite> plugin writes data to I<Graphite>, an open-source metrics

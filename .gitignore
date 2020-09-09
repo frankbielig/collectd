@@ -10,6 +10,7 @@ Makefile.in
 /config.sub
 /configure
 /depcomp
+/install/
 /install-sh
 /libltdl/
 /ltmain.sh

@@ -2212,6 +2212,14 @@ wireless_la_SOURCES = src/wireless.c
 wireless_la_LDFLAGS = $(PLUGIN_LDFLAGS)
 endif
 
+if BUILD_PLUGIN_WRITE_DLT
+pkglib_LTLIBRARIES += write_dlt.la
+write_dlt_la_SOURCES = src/write_dlt.c
+write_dlt_la_CFLAGS = $(AM_CFLAGS) $(BUILD_WITH_LIBDLT_CFLAGS)
+write_dlt_la_LDFLAGS = $(PLUGIN_LDFLAGS) $(BUILD_WITH_LIBDLT_LDFLAGS)
+write_dlt_la_LIBADD = libformat_graphite.la libformat_json.la $(BUILD_WITH_LIBDLT_LIBS)
+endif
+
 if BUILD_PLUGIN_WRITE_GRAPHITE
 pkglib_LTLIBRARIES += write_graphite.la
 write_graphite_la_SOURCES = src/write_graphite.c

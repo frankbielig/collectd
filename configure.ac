@@ -2428,6 +2428,53 @@ AC_SUBST(BUILD_WITH_LIBDBI_LDFLAGS)
 AC_SUBST(BUILD_WITH_LIBDBI_LIBS)
 # }}}
 
+# --with-libdlt {{{
+AC_ARG_WITH([libdlt],
+  [AS_HELP_STRING([--with-libdlt@<:@=PREFIX@:>@], [Path to libdlt.])],
+  [
+    if test "x$withval" != "xno" && test "x$withval" != "xyes"; then
+      with_libdlt_cppflags="-I$withval/include"
+      with_libdlt_ldflags="-L$withval/lib"
+      with_libdlt="yes"
+    else
+      with_libdlt="$withval"
+    fi
+  ],
+  [with_libdlt="yes"]
+)
+
+if test "x$with_libdlt" = "xyes"; then
+  SAVE_CPPFLAGS="$CPPFLAGS"
+  CPPFLAGS="$CPPFLAGS $with_libdlt_cppflags"
+
+  AC_CHECK_HEADERS([dlt/dlt.h],
+    [with_libdlt="yes"],
+    [with_libdlt="no (dlt/dlt.h not found)"]
+  )
+
+  CPPFLAGS="$SAVE_CPPFLAGS"
+fi
+
+if test "x$with_libdlt" = "xyes"; then
+  SAVE_LDFLAGS="$LDFLAGS"
+  LDFLAGS="$LDFLAGS $with_libdlt_ldflags"
+
+  AC_CHECK_LIB([dlt], [dlt_client_init],
+    [with_libdlt="yes"],
+    [with_libdlt="no (Symbol 'dlt_client_init' not found)"]
+  )
+
+  LDFLAGS="$SAVE_LDFLAGS"
+fi
+
+BUILD_WITH_LIBDLT_CFLAGS="$with_libdlt_cppflags"
+BUILD_WITH_LIBDLT_LDFLAGS="$with_libdlt_ldflags"
+BUILD_WITH_LIBDLT_LIBS="-ldlt"
+AC_SUBST(BUILD_WITH_LIBDLT_CFLAGS)
+AC_SUBST(BUILD_WITH_LIBDLT_LDFLAGS)
+AC_SUBST(BUILD_WITH_LIBDLT_LIBS)
+# }}}
+
 # --with-libdpdk {{{
 AC_ARG_VAR([LIBDPDK_CPPFLAGS], [Preprocessor flags for libdpdk])
 AC_ARG_VAR([LIBDPDK_CFLAGS], [Compiler flags for libdpdk])
@@ -7189,6 +7236,7 @@ AC_PLUGIN([virt],                [$plugin_virt],              [Virtual machine s
 AC_PLUGIN([vmem],                [$plugin_vmem],              [Virtual memory statistics])
 AC_PLUGIN([vserver],             [$plugin_vserver],           [Linux VServer statistics])
 AC_PLUGIN([wireless],            [$plugin_wireless],          [Wireless statistics])
+AC_PLUGIN([write_dlt],           [$with_libdlt],              [Diagnostic Log and Trace plugin])
 AC_PLUGIN([write_graphite],      [yes],                       [Graphite / Carbon output plugin])
 AC_PLUGIN([write_http],          [$with_libcurl],             [HTTP output plugin])
 AC_PLUGIN([write_influxdb_udp],  [yes],                       [Influxdb udp output plugin])
@@ -7635,6 +7683,7 @@ AC_MSG_RESULT([    virt  . . . . . . . . $enable_virt])
 AC_MSG_RESULT([    vmem  . . . . . . . . $enable_vmem])
 AC_MSG_RESULT([    vserver . . . . . . . $enable_vserver])
 AC_MSG_RESULT([    wireless  . . . . . . $enable_wireless])
+AC_MSG_RESULT([    write_dlt . . . . . . $enable_write_dlt])
 AC_MSG_RESULT([    write_graphite  . . . $enable_write_graphite])
 AC_MSG_RESULT([    write_http  . . . . . $enable_write_http])
 AC_MSG_RESULT([    write_influxdb_udp. . $enable_write_influxdb_udp])
