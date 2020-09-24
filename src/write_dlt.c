@@ -39,7 +39,7 @@ static int wdlt_write_graphite(const data_set_t *ds, const value_list_t *vl) {
   if (status != 0) /* error message has been printed already. */
     return status;
 
-  DLT_LOG(graphiteContext, DLT_LOG_INFO, DLT_INT(5), DLT_STRING(buffer));
+  DLT_LOG(graphiteContext, DLT_LOG_INFO, DLT_STRING(buffer));
 
   return 0;
 } /* int wdlt_write_graphite */
@@ -59,7 +59,7 @@ static int wdlt_write_json(const data_set_t *ds, const value_list_t *vl) {
                          /* store rates = */ 0);
   format_json_finalize(buffer, &bfill, &bfree);
 
-  DLT_LOG(jsonContext, DLT_LOG_INFO, DLT_INT(5), DLT_STRING(buffer));
+  DLT_LOG(jsonContext, DLT_LOG_INFO, DLT_STRING(buffer));
 
   return 0;
 } /* int wdlt_write_json */
