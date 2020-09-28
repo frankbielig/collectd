@@ -587,8 +587,8 @@ liboconfig_la_SOURCES = \
 	src/liboconfig/oconfig.c \
 	src/liboconfig/oconfig.h \
 	src/liboconfig/aux_types.h \
-	src/liboconfig/scanner.l \
-	src/liboconfig/parser.y
+	$(srcdir)/src/liboconfig/scanner.l \
+	$(srcdir)/src/liboconfig/parser.y
 liboconfig_la_CPPFLAGS = -I$(srcdir)/src/liboconfig $(AM_CPPFLAGS)
 liboconfig_la_LDFLAGS = -avoid-version $(LEXLIB)
 
