@@ -24,13 +24,15 @@ DLT_DECLARE_CONTEXT(graphiteContext);
 /* Plugin:WriteLog has to also operate without a config, so use a global. */
 int wdlt_format = WL_FORMAT_GRAPHITE;
 char wdlt_appid[] = "CLTD";
+const char* wdlt_name = "write_dlt";
 
+/* -------------------------------------------------------------------------- */
 static int wdlt_write_graphite(const data_set_t *ds, const value_list_t *vl) {
   char buffer[WL_BUF_SIZE] = {0};
   int status;
 
   if (0 != strcmp(ds->type, vl->type)) {
-    ERROR("write_dlt plugin: DS type does not match value list type");
+    ERROR("%s: DS type does not match value list type", wdlt_name);
     return -1;
   }
 
@@ -44,13 +46,15 @@ static int wdlt_write_graphite(const data_set_t *ds, const value_list_t *vl) {
   return 0;
 } /* int wdlt_write_graphite */
 
+
+/* -------------------------------------------------------------------------- */
 static int wdlt_write_json(const data_set_t *ds, const value_list_t *vl) {
   char buffer[WL_BUF_SIZE] = {0};
   size_t bfree = sizeof(buffer);
   size_t bfill = 0;
 
   if (0 != strcmp(ds->type, vl->type)) {
-    ERROR("write_dlt plugin: DS type does not match value list type");
+    ERROR("%s: DS type does not match value list type", wdlt_name);
     return -1;
   }
 
@@ -64,6 +68,8 @@ static int wdlt_write_json(const data_set_t *ds, const value_list_t *vl) {
   return 0;
 } /* int wdlt_write_json */
 
+
+/* -------------------------------------------------------------------------- */
 static int wdlt_write(const data_set_t *ds, const value_list_t *vl,
                     __attribute__((unused)) user_data_t *user_data) {
   int status = 0;
@@ -78,6 +84,7 @@ static int wdlt_write(const data_set_t *ds, const value_list_t *vl,
 }
 
 
+/* -------------------------------------------------------------------------- */
 static int wg_config_dlt(oconfig_item_t *ci)  /* {{{ */
 {
   for (int i = 0; i < ci->children_num; i++) {
@@ -87,8 +94,8 @@ static int wg_config_dlt(oconfig_item_t *ci)  /* {{{ */
       bzero(wdlt_appid, 4);
       cf_util_get_string_buffer(child, wdlt_appid, sizeof(wdlt_appid));
     } else {
-      ERROR("write_dlt plugin: Invalid configuration option in <DLT>: `%s'.",
-            child->key);
+      ERROR("%s: Invalid configuration option in <DLT>: `%s'.",
+            wdlt_name, child->key);
       return -EINVAL;
     }
   }
@@ -96,6 +103,7 @@ static int wg_config_dlt(oconfig_item_t *ci)  /* {{{ */
 } /* }}} int wdlt_config_dlt */  
 
 
+/* -------------------------------------------------------------------------- */
 static int wdlt_config(oconfig_item_t *ci) /* {{{ */
 {
   bool format_seen = false;
@@ -118,7 +126,7 @@ static int wdlt_config(oconfig_item_t *ci) /* {{{ */
         continue;
 
       if (format_seen) {
-        WARNING("write_dlt plugin: Redefining option `%s'.", child->key);
+        WARNING("%s: Redefining option `%s'.", wdlt_name, child->key);
       }
       format_seen = true;
 
@@ -127,13 +135,13 @@ static int wdlt_config(oconfig_item_t *ci) /* {{{ */
       else if (strcasecmp("JSON", str) == 0)
         wdlt_format = WL_FORMAT_JSON;
       else {
-        ERROR("write_dlt plugin: Unknown format `%s' for option `%s'.", str,
-              child->key);
+        ERROR("%s: Unknown format `%s' for option `%s'.", str,
+              wdlt_name, child->key);
         return -EINVAL;
       }
     } else {
-      ERROR("write_dlt plugin: Invalid configuration option: `%s'.",
-            child->key);
+      ERROR("%s: Invalid configuration option: `%s'.",
+            wdlt_name, child->key);
       return -EINVAL;
     }
   }
@@ -142,6 +150,7 @@ static int wdlt_config(oconfig_item_t *ci) /* {{{ */
 } /* }}} int wdlt_config */
 
 
+/* -------------------------------------------------------------------------- */
 static int wdlt_init() /* {{{ */
 {
   INFO("write_dlt: register app with '%s'.", wdlt_appid);
@@ -154,6 +163,7 @@ static int wdlt_init() /* {{{ */
 } /* }}} int wdlt_init */
 
 
+/* -------------------------------------------------------------------------- */
 static int wdlt_shutdown() /* {{{ */
 {
   DLT_UNREGISTER_CONTEXT(jsonContext);
@@ -165,6 +175,7 @@ static int wdlt_shutdown() /* {{{ */
 } /* }}} int wdlt_shutdown */
 
 
+/* -------------------------------------------------------------------------- */
 void module_register(void) {
   plugin_register_complex_config("write_dlt", wdlt_config);
   /* If config is supplied, the global wdlt_format will be set. */
