@@ -20,54 +20,113 @@
 #define WL_FORMAT_GRAPHITE 1
 #define WL_FORMAT_JSON 2
 
-DLT_DECLARE_CONTEXT(jsonContext);
-DLT_DECLARE_CONTEXT(graphiteContext);
+DltContext* jsonContext;
+DltContext* graphiteContext;
     
-/* -------------------------------------------------------------------------- */
-/* dlt global variables */
+/* ========================================================================== */
+/* constants */
+/* ========================================================================== */
 
-int wdlt_format = WL_FORMAT_GRAPHITE;
-char wdlt_appid[] = "CLTD";
-const char* wdlt_name = "write_dlt plugin";
+static int wdlt_format = WL_FORMAT_GRAPHITE;
+static char wdlt_appid[] = "CLTD";
+static const char* wdlt_name = "write_dlt plugin";
+
+/* ========================================================================== */
+/* dlt context management */
+/* ========================================================================== */
+
+typedef struct wdlt_context_info_s {
+  char name[4];
+  DltContext context;
+} wdlt_context_info_t;
+
+wdlt_context_info_t* wdlt_contexts = NULL;
+int wdlt_contexts_size = 0;
 
 /* -------------------------------------------------------------------------- */
+DltContext* wdlt_context_get(const char* name, const char* description) {
+  int co;
+  wdlt_context_info_t* tmp;
+
+  if (name == NULL) {
+    name = "NULL";
+  }
+
+  /* find existing context */
+  for (co = 0; co < wdlt_contexts_size; ++co) {
+    wdlt_context_info_t* info = wdlt_contexts + co;
+    if (strncmp(info->name, name, 4) == 0) {
+      return &info->context;
+    }
+  }
+
+  /* create new context */
+  tmp = realloc(wdlt_contexts, (wdlt_contexts_size + 1) * sizeof(*tmp));
+  if (tmp == NULL) {
+    ERROR("%s: wdlt_context_get: realloc failed.", wdlt_name);
+    return NULL;
+  }
+  wdlt_contexts = tmp;
+  tmp = wdlt_contexts + wdlt_contexts_size;
+  ++wdlt_contexts_size;
+  strncpy(tmp->name, name, 4);
+  dlt_register_context(&tmp->context, name, description);
+
+  return &tmp->context;
+}
+
+/* -------------------------------------------------------------------------- */
+void wdlt_context_clear() {
+  int co;
+
+  for (co = 0; co < wdlt_contexts_size; ++co) {
+    dlt_unregister_context(&wdlt_contexts[co].context);
+  }
+  if (wdlt_contexts != NULL) {
+    sfree(wdlt_contexts);
+  }
+}
+
+/* ========================================================================== */
 /* matching list */
-typedef struct match_entry_s {
+/* ========================================================================== */
+
+typedef struct level_entry_s {
 #if HAVE_REGEX_H
   regex_t *re;
 #endif
   DltLogLevelType dlt_level;
-  struct match_entry_s* _next;
-} match_entry_t;
+  struct level_entry_s* _next;
+} level_entry_t;
 
-static match_entry_t* match_list_begin = NULL;
-static match_entry_t* match_list_end = NULL;
+static level_entry_t* level_list_begin = NULL;
+static level_entry_t* level_list_end = NULL;
 
 /* -------------------------------------------------------------------------- */
-static void wdlt_match_list_add(const char* regexp, const char* level) {
+static void wdlt_level_list_add(const char* regexp, const char* level) {
     int status;
 
-    match_entry_t* match_entry = malloc(sizeof(match_entry_t));
-    if (match_entry == NULL) {
-      ERROR("%s: match_list_add: malloc failed.", wdlt_name);
+    level_entry_t* level_entry = malloc(sizeof(level_entry_t));
+    if (level_entry == NULL) {
+      ERROR("%s: level_list_add: malloc failed.", wdlt_name);
       return ;
     }
 
 #if HAVE_REGEX_H
   if (regexp != NULL) {
-    match_entry->re = calloc(1, sizeof(*match_entry->re));
-    if (match_entry->re == NULL) {
-      ERROR("%s: match_list_add: calloc failed.", wdlt_name);
-      sfree(match_entry);
+    level_entry->re = calloc(1, sizeof(*level_entry->re));
+    if (level_entry->re == NULL) {
+      ERROR("%s: level_list_add: calloc failed.", wdlt_name);
+      sfree(level_entry);
       return;
     }
 
-    status = regcomp(match_entry->re, regexp, REG_EXTENDED | REG_NOSUB);
+    status = regcomp(level_entry->re, regexp, REG_EXTENDED | REG_NOSUB);
     if (status != 0) {
       DEBUG("%s: compiling the regular expression \"%s\" failed.",
             mdlt_name, regexp);
-      sfree(match_entry->re);
-      sfree(match_entry);
+      regfree(level_entry->re);
+      sfree(level_entry);
       return;
     }
   }
@@ -78,56 +137,56 @@ static void wdlt_match_list_add(const char* regexp, const char* level) {
           "file, but support for regular expressions "
           "has been disabled at compile time.",
           wdlt_name, regexp);
-    sfree(match_entry);
+    sfree(level_entry);
     return;
   }
 #endif
 
-    match_entry->dlt_level = DLT_LOG_INFO;
+    level_entry->dlt_level = DLT_LOG_INFO;
     if (level != NULL) {
       if(strcasecmp(level, "DEFAULT") == 0) {
-        match_entry->dlt_level = DLT_LOG_DEFAULT;
+        level_entry->dlt_level = DLT_LOG_DEFAULT;
       } else if(strcasecmp(level, "OFF") == 0) {
-        match_entry->dlt_level = DLT_LOG_OFF;
+        level_entry->dlt_level = DLT_LOG_OFF;
       } else if(strcasecmp(level, "FATAL") == 0) {
-        match_entry->dlt_level = DLT_LOG_FATAL;
+        level_entry->dlt_level = DLT_LOG_FATAL;
       } else if(strcasecmp(level, "ERROR") == 0) {
-        match_entry->dlt_level = DLT_LOG_ERROR;
+        level_entry->dlt_level = DLT_LOG_ERROR;
       } else if(strcasecmp(level, "WARN") == 0) {
-        match_entry->dlt_level = DLT_LOG_WARN;
+        level_entry->dlt_level = DLT_LOG_WARN;
       } else if(strcasecmp(level, "INFO") == 0) {
-        match_entry->dlt_level = DLT_LOG_INFO;
+        level_entry->dlt_level = DLT_LOG_INFO;
       } else if(strcasecmp(level, "DEBUG") == 0) {
-        match_entry->dlt_level = DLT_LOG_DEBUG;
+        level_entry->dlt_level = DLT_LOG_DEBUG;
       } else if(strcasecmp(level, "VERBOSE") == 0) {
-        match_entry->dlt_level = DLT_LOG_VERBOSE;
+        level_entry->dlt_level = DLT_LOG_VERBOSE;
       }
     }
       
-    if (match_list_begin == NULL) {
-      match_list_begin = match_entry;
-      match_list_end = match_entry;
+    if (level_list_begin == NULL) {
+      level_list_begin = level_entry;
+      level_list_end = level_entry;
     } else {
-      match_list_end->_next = match_entry;      
-      match_list_end = match_entry;      
+      level_list_end->_next = level_entry;      
+      level_list_end = level_entry;      
     }
 
 }
 
 /* -------------------------------------------------------------------------- */
-static void wdlt_match_list_clear() {
-  while (match_list_begin != NULL) {
-    match_entry_t* match_entry_to_delete = match_list_begin;
-    match_list_begin = match_entry_to_delete->_next;
+static void wdlt_level_list_clear() {
+  while (level_list_begin != NULL) {
+    level_entry_t* level_entry_to_delete = level_list_begin;
+    level_list_begin = level_entry_to_delete->_next;
   }
-  match_list_end = NULL;
+  level_list_end = NULL;
 }
 
 /* -------------------------------------------------------------------------- */
-static DltLogLevelType wdlt_match_list_get_dlt_level(const char* message) {
+static DltLogLevelType wdlt_level_list_get(const char* message) {
 #if HAVE_REGEX_H
-  match_entry_t* me;
-  for (me = match_list_begin; me != NULL; me = me->_next) {
+  level_entry_t* me;
+  for (me = level_list_begin; me != NULL; me = me->_next) {
     if (me->re == NULL) {
       continue;
     }
@@ -139,6 +198,10 @@ static DltLogLevelType wdlt_match_list_get_dlt_level(const char* message) {
   return DLT_LOG_INFO;
 }
 
+
+/* ========================================================================== */
+/* output functions */
+/* ========================================================================== */
 
 /* -------------------------------------------------------------------------- */
 static int wdlt_write_graphite(const data_set_t *ds, const value_list_t *vl) {
@@ -155,8 +218,8 @@ static int wdlt_write_graphite(const data_set_t *ds, const value_list_t *vl) {
   if (status != 0) /* error message has been printed already. */
     return status;
 
-  DltLogLevelType dlt_level = wdlt_match_list_get_dlt_level(buffer);
-  DLT_LOG(graphiteContext, dlt_level, DLT_STRING(buffer));
+  DltLogLevelType dlt_level = wdlt_level_list_get(buffer);
+  DLT_LOG(*graphiteContext, dlt_level, DLT_STRING(buffer));
 
   return 0;
 }
@@ -174,12 +237,11 @@ static int wdlt_write_json(const data_set_t *ds, const value_list_t *vl) {
   }
 
   format_json_initialize(buffer, &bfill, &bfree);
-  format_json_value_list(buffer, &bfill, &bfree, ds, vl,
-                         /* store rates = */ 0);
+  format_json_value_list(buffer, &bfill, &bfree, ds, vl, 0);
   format_json_finalize(buffer, &bfill, &bfree);
 
-  DltLogLevelType dlt_level = wdlt_match_list_get_dlt_level(buffer);
-  DLT_LOG(jsonContext, dlt_level, DLT_STRING(buffer));
+  DltLogLevelType dlt_level = wdlt_level_list_get(buffer);
+  DLT_LOG(*jsonContext, dlt_level, DLT_STRING(buffer));
 
   return 0;
 }
@@ -200,6 +262,10 @@ static int wdlt_write(const data_set_t *ds, const value_list_t *vl,
 }
 
 
+/* ========================================================================== */
+/* configuration */
+/* ========================================================================== */
+
 /* -------------------------------------------------------------------------- */
 static int wg_config_dlt(oconfig_item_t *ci) 
 {
@@ -213,11 +279,11 @@ static int wg_config_dlt(oconfig_item_t *ci)
       if ((child->values_num != 2) ||
           (OCONFIG_TYPE_STRING != child->values[0].type) ||
           (OCONFIG_TYPE_STRING != child->values[1].type)) {
-        ERROR("%s: `ProcessMatch' needs exactly two string arguments (got %i).",
+        ERROR("%s: `'MatchLevel' needs exactly two string arguments (got %i).",
               wdlt_name, child->values_num);
         continue;
       }
-      wdlt_match_list_add(child->values[0].value.string, 
+      wdlt_level_list_add(child->values[0].value.string, 
                           child->values[1].value.string);
     } else {
       ERROR("%s: Invalid configuration option in <DLT>: `%s'.",
@@ -282,8 +348,8 @@ static int wdlt_init()
   INFO("write_dlt: register app with '%s'.", wdlt_appid);
   DLT_REGISTER_APP(wdlt_appid, "Diagnostic Log and Trace");
 
-  DLT_REGISTER_CONTEXT(jsonContext, "JSON", "use json format");
-  DLT_REGISTER_CONTEXT(graphiteContext, "GRPH", "use graphite format");
+  jsonContext = wdlt_context_get("JSON", "use json format");
+  graphiteContext = wdlt_context_get("GRPH", "use graphite format");
 
   return 0;
 }
@@ -292,10 +358,8 @@ static int wdlt_init()
 /* -------------------------------------------------------------------------- */
 static int wdlt_shutdown()
 {
-  wdlt_match_list_clear();
-
-  DLT_UNREGISTER_CONTEXT(jsonContext);
-  DLT_UNREGISTER_CONTEXT(graphiteContext);
+  wdlt_level_list_clear();
+  wdlt_context_clear();
 
   INFO("write_dlt: unregister app with '%s'.", wdlt_appid);
   DLT_UNREGISTER_APP();
