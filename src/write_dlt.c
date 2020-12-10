@@ -17,6 +17,7 @@
 #endif
 
 #define WL_BUF_SIZE 16384
+#define WL_CONTEXT_MAX 100
 #define WL_FORMAT_GRAPHITE 1
 #define WL_FORMAT_JSON 2
 
@@ -40,7 +41,7 @@ typedef struct wdlt_context_info_s {
   DltContext context;
 } wdlt_context_info_t;
 
-wdlt_context_info_t* wdlt_contexts = NULL;
+wdlt_context_info_t wdlt_contexts[WL_CONTEXT_MAX];
 int wdlt_contexts_size = 0;
 
 /* -------------------------------------------------------------------------- */
@@ -61,16 +62,16 @@ DltContext* wdlt_context_get(const char* name, const char* description) {
   }
 
   /* create new context */
-  tmp = realloc(wdlt_contexts, (wdlt_contexts_size + 1) * sizeof(*tmp));
-  if (tmp == NULL) {
-    ERROR("%s: wdlt_context_get: realloc failed.", wdlt_name);
+  if (wdlt_contexts_size >= WL_CONTEXT_MAX) {
+    ERROR("%s: wdlt_context_get: too many contexts >  %d",
+          wdlt_name, WL_CONTEXT_MAX);
     return NULL;
   }
-  wdlt_contexts = tmp;
   tmp = wdlt_contexts + wdlt_contexts_size;
   ++wdlt_contexts_size;
   strncpy(tmp->name, name, 4);
-  dlt_register_context(&tmp->context, name, description);
+  INFO("%s: add DLT context '%s' (%p)", wdlt_name, name, &tmp->context);
+  dlt_register_context(&tmp->context, tmp->name, description);
 
   return &tmp->context;
 }
@@ -82,13 +83,10 @@ void wdlt_context_clear() {
   for (co = 0; co < wdlt_contexts_size; ++co) {
     dlt_unregister_context(&wdlt_contexts[co].context);
   }
-  if (wdlt_contexts != NULL) {
-    sfree(wdlt_contexts);
-  }
 }
 
 /* ========================================================================== */
-/* matching list */
+/* level list */
 /* ========================================================================== */
 
 typedef struct level_entry_s {
@@ -124,7 +122,7 @@ static void wdlt_level_list_add(const char* regexp, const char* level) {
     status = regcomp(level_entry->re, regexp, REG_EXTENDED | REG_NOSUB);
     if (status != 0) {
       DEBUG("%s: compiling the regular expression \"%s\" failed.",
-            mdlt_name, regexp);
+            wdlt_name, regexp);
       regfree(level_entry->re);
       sfree(level_entry);
       return;
@@ -163,6 +161,8 @@ static void wdlt_level_list_add(const char* regexp, const char* level) {
       }
     }
       
+    DEBUG("%s: add DLT level match '%s' --> %s (%d)", 
+          wdlt_name, regexp, level, level_entry->dlt_level);
     if (level_list_begin == NULL) {
       level_list_begin = level_entry;
       level_list_end = level_entry;
@@ -175,9 +175,12 @@ static void wdlt_level_list_add(const char* regexp, const char* level) {
 
 /* -------------------------------------------------------------------------- */
 static void wdlt_level_list_clear() {
+  DEBUG("%s: level_list_clear: begin", wdlt_name);
   while (level_list_begin != NULL) {
     level_entry_t* level_entry_to_delete = level_list_begin;
     level_list_begin = level_entry_to_delete->_next;
+    regfree(level_entry_to_delete->re);
+    free(level_entry_to_delete);
   }
   level_list_end = NULL;
 }
@@ -196,6 +199,104 @@ static DltLogLevelType wdlt_level_list_get(const char* message) {
   }
 #endif
   return DLT_LOG_INFO;
+}
+
+
+/* ========================================================================== */
+/* context list */
+/* ========================================================================== */
+
+typedef struct context_entry_s {
+#if HAVE_REGEX_H
+  regex_t *re;
+#endif
+  DltContext* dlt_context;
+  struct context_entry_s* _next;
+} context_entry_t;
+
+static context_entry_t* context_list_begin = NULL;
+static context_entry_t* context_list_end = NULL;
+
+/* -------------------------------------------------------------------------- */
+static void wdlt_context_list_add(const char* regexp, const char* context) {
+    int status;
+
+    context_entry_t* context_entry = calloc(1, sizeof(context_entry_t));
+    if (context_entry == NULL) {
+      ERROR("%s: context_list_add: malloc failed.", wdlt_name);
+      return ;
+    }
+
+#if HAVE_REGEX_H
+  if (regexp != NULL) {
+    context_entry->re = calloc(1, sizeof(*context_entry->re));
+    if (context_entry->re == NULL) {
+      ERROR("%s: context_list_add: calloc failed.", wdlt_name);
+      sfree(context_entry);
+      return;
+    }
+
+    status = regcomp(context_entry->re, regexp, REG_EXTENDED | REG_NOSUB);
+    if (status != 0) {
+      DEBUG("%s: compiling the regular expression \"%s\" failed.",
+            wdlt_name, regexp);
+      regfree(context_entry->re);
+      sfree(context_entry);
+      return;
+    }
+  }
+#else
+  if (regexp != NULL) {
+    ERROR("%s: ps_list_register: "
+          "Regular expression \"%s\" found in config "
+          "file, but support for regular expressions "
+          "has been disabled at compile time.",
+          wdlt_name, regexp);
+    sfree(context_entry);
+    return;
+  }
+#endif
+
+    context_entry->dlt_context = wdlt_context_get(context, "dynamic");
+    DEBUG("%s: add DLT context match '%s' --> %s", 
+          wdlt_name, regexp, context);
+      
+    if (context_list_begin == NULL) {
+      context_list_begin = context_entry;
+      context_list_end = context_entry;
+    } else {
+      context_list_end->_next = context_entry;      
+      context_list_end = context_entry;      
+    }
+
+}
+
+/* -------------------------------------------------------------------------- */
+static void wdlt_context_list_clear() {
+  DEBUG("%s: context_list_clear: begin", wdlt_name);
+  while (context_list_begin != NULL) {
+    context_entry_t* context_entry_to_delete = context_list_begin;
+    context_list_begin = context_entry_to_delete->_next;
+    regfree(context_entry_to_delete->re);
+    free(context_entry_to_delete);
+  }
+  context_list_end = NULL;
+}
+
+/* -------------------------------------------------------------------------- */
+static DltContext* wdlt_context_list_get(const char* message, DltContext* def) {
+#if HAVE_REGEX_H
+  context_entry_t* me;
+  for (me = context_list_begin; me != NULL; me = me->_next) {
+    if (me->re == NULL) {
+      continue;
+    }
+    if (regexec(me->re, message, 0, NULL, 0) == 0) {
+      return me->dlt_context;
+    }
+  }
+#endif
+  return def;
 }
 
 
@@ -219,8 +320,10 @@ static int wdlt_write_graphite(const data_set_t *ds, const value_list_t *vl) {
     return status;
 
   DltLogLevelType dlt_level = wdlt_level_list_get(buffer);
-  DLT_LOG(*graphiteContext, dlt_level, DLT_STRING(buffer));
-
+  DltContext* dlt_context = wdlt_context_list_get(buffer, graphiteContext);
+  if (dlt_context != NULL) {
+    DLT_LOG(*dlt_context, dlt_level, DLT_STRING(buffer));
+  }
   return 0;
 }
 
@@ -241,7 +344,10 @@ static int wdlt_write_json(const data_set_t *ds, const value_list_t *vl) {
   format_json_finalize(buffer, &bfill, &bfree);
 
   DltLogLevelType dlt_level = wdlt_level_list_get(buffer);
-  DLT_LOG(*jsonContext, dlt_level, DLT_STRING(buffer));
+  DltContext* dlt_context = wdlt_context_list_get(buffer, jsonContext);
+  if (dlt_context != NULL) {
+    DLT_LOG(*dlt_context, dlt_level, DLT_STRING(buffer));
+  }
 
   return 0;
 }
@@ -285,6 +391,16 @@ static int wg_config_dlt(oconfig_item_t *ci)
       }
       wdlt_level_list_add(child->values[0].value.string, 
                           child->values[1].value.string);
+    } else if (strcasecmp("MatchContext", child->key) == 0) {
+      if ((child->values_num != 2) ||
+          (OCONFIG_TYPE_STRING != child->values[0].type) ||
+          (OCONFIG_TYPE_STRING != child->values[1].type)) {
+        ERROR("%s: `'MatchContext' needs exactly two string arguments (got %i).",
+              wdlt_name, child->values_num);
+        continue;
+      }
+      wdlt_context_list_add(child->values[0].value.string, 
+                            child->values[1].value.string);
     } else {
       ERROR("%s: Invalid configuration option in <DLT>: `%s'.",
             wdlt_name, child->key);
@@ -359,6 +475,7 @@ static int wdlt_init()
 static int wdlt_shutdown()
 {
   wdlt_level_list_clear();
+  wdlt_context_list_clear();
   wdlt_context_clear();
 
   INFO("write_dlt: unregister app with '%s'.", wdlt_appid);
