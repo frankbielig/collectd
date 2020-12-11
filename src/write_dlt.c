@@ -21,9 +21,6 @@
 #define WL_FORMAT_GRAPHITE 1
 #define WL_FORMAT_JSON 2
 
-DltContext* jsonContext;
-DltContext* graphiteContext;
-    
 /* ========================================================================== */
 /* constants */
 /* ========================================================================== */
@@ -36,52 +33,69 @@ static const char* wdlt_name = "write_dlt plugin";
 /* dlt context management */
 /* ========================================================================== */
 
+
 typedef struct wdlt_context_info_s {
-  char name[4];
   DltContext context;
+  struct wdlt_context_info_s* _next;
 } wdlt_context_info_t;
 
-wdlt_context_info_t wdlt_contexts[WL_CONTEXT_MAX];
-int wdlt_contexts_size = 0;
+static DltContext* jsonContext;
+static DltContext* graphiteContext;
+static DltContext* jsonContext;
+
+static wdlt_context_info_t* wdlt_contexts;
 
 /* -------------------------------------------------------------------------- */
 DltContext* wdlt_context_get(const char* name, const char* description) {
-  int co;
-  wdlt_context_info_t* tmp;
+  DltReturnValue dlt_ret;
+  wdlt_context_info_t* ci;
 
   if (name == NULL) {
     name = "NULL";
   }
 
   /* find existing context */
-  for (co = 0; co < wdlt_contexts_size; ++co) {
-    wdlt_context_info_t* info = wdlt_contexts + co;
-    if (strncmp(info->name, name, 4) == 0) {
-      return &info->context;
+  for (ci = wdlt_contexts; ci != NULL; ci = ci->_next) {
+    if (strncmp(ci->context.contextID, name, 4) == 0) {
+      return &ci->context;
     }
   }
 
   /* create new context */
-  if (wdlt_contexts_size >= WL_CONTEXT_MAX) {
-    ERROR("%s: wdlt_context_get: too many contexts >  %d",
-          wdlt_name, WL_CONTEXT_MAX);
+  ci = calloc(1, sizeof(*ci));
+  
+  INFO("%s: register DLT context '%s' (%p)", wdlt_name, name, &ci->context);
+  dlt_ret = dlt_register_context(&ci->context, name, description);
+  if (dlt_ret != DLT_RETURN_OK) {
+    ERROR("%s: creating DLT context '%s' failed", wdlt_name, name);
+    sfree(ci);
     return NULL;
   }
-  tmp = wdlt_contexts + wdlt_contexts_size;
-  ++wdlt_contexts_size;
-  strncpy(tmp->name, name, 4);
-  INFO("%s: add DLT context '%s' (%p)", wdlt_name, name, &tmp->context);
-  dlt_register_context(&tmp->context, tmp->name, description);
 
-  return &tmp->context;
+  if (wdlt_contexts == NULL) {
+    wdlt_contexts = ci;
+  } else {
+    ci->_next = wdlt_contexts;
+    wdlt_contexts = ci;
+  }
+
+  return &ci->context;
 }
 
 /* -------------------------------------------------------------------------- */
 void wdlt_context_clear() {
-  int co;
+  DltReturnValue dlt_ret;
 
-  for (co = 0; co < wdlt_contexts_size; ++co) {
-    dlt_unregister_context(&wdlt_contexts[co].context);
+  while (wdlt_contexts != NULL) {
+    wdlt_context_info_t* to_delete = wdlt_contexts;
+    wdlt_contexts = to_delete->_next;
+    INFO("%s: unregister DLT context '%.4s' (%p)", 
+          wdlt_name, to_delete->context.contextID, &to_delete->context);
+    dlt_ret = dlt_unregister_context(&to_delete->context);
+    if (dlt_ret != DLT_RETURN_OK) {
+      ERROR("%s: unregistering DLT context failed", wdlt_name);
+    }
+    free(to_delete);
   }
 }
 
