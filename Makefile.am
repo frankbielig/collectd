@@ -2218,6 +2218,20 @@ write_dlt_la_SOURCES = src/write_dlt.c
 write_dlt_la_CFLAGS = $(AM_CFLAGS) $(BUILD_WITH_LIBDLT_CFLAGS)
 write_dlt_la_LDFLAGS = $(PLUGIN_LDFLAGS) $(BUILD_WITH_LIBDLT_LDFLAGS)
 write_dlt_la_LIBADD = libformat_graphite.la libformat_json.la $(BUILD_WITH_LIBDLT_LIBS)
+
+test_plugin_write_dlt_SOURCES = src/write_dlt_test.c \
+  src/daemon/configfile.c src/daemon/types_list.c
+test_plugin_write_dlt_CFLAGS = $(AM_CFLAGS) $(BUILD_WITH_LIBDLT_CFLAGS)
+test_plugin_write_dlt_LDFLAGS = $(PLUGIN_LDFLAGS) $(BUILD_WITH_LIBDLT_LDFLAGS)
+test_plugin_write_dlt_LDADD = \
+  libformat_graphite.la \
+  libformat_json.la \
+  liboconfig.la \
+  libplugin_mock.la \
+  libmetadata.la \
+  $(BUILD_WITH_LIBDLT_LIBS)
+check_PROGRAMS += test_plugin_write_dlt
+TESTS += test_plugin_write_dlt
 endif
 
 if BUILD_PLUGIN_WRITE_GRAPHITE
