@@ -1990,6 +1990,17 @@
 #  </Node>
 #</Plugin>
 
+#<Plugin write_dlt>
+#    Format Graphite
+#    <DLT>
+#        AppID ABCD
+#        MatchLevel "pattern1" "off"
+#        MatchLevel "pattern2" "info"
+#        MatchContext "pattern3" "CTX3"
+#        MatchContext "pattern4" "CTX4"
+#    </DLT>
+#</Plugin>
+
 #<Plugin write_http>
 #	<Node "example">
 #		URL "http://example.com/collectd-post"
