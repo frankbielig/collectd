@@ -1456,17 +1456,17 @@
 #	CollectMemoryMaps true
 #	CollectDelayAccounting false
 #	Process "name"
-#	ProcessMatch "name" "regex"
+#	ProcessMatch "name" "cmd line regex"
+#	ProcessMatch "name" "cmd line regex" "user name regex"
 #	<Process "collectd">
 #		CollectFileDescriptor false
 #		CollectContextSwitch false
 #		CollectDelayAccounting true
 #	</Process>
-#	<ProcessMatch "name" "regex">
+#	<ProcessMatch "name" "cmd line regex">
 #		CollectFileDescriptor false
 #		CollectContextSwitch true
 #	</Process>
-#   ProcessMatchByUser false
 #</Plugin>
 
 #<Plugin processes2>
@@ -1490,7 +1490,7 @@
 #		CollectFileDescriptor false
 #		CollectContextSwitch true
 #	</Process>
-#   ProcessMatchByUser false
+# ProcessMatchByUser false
 #</Plugin>
 
 #<Plugin "procevent">
