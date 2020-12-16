@@ -106,3 +106,4 @@ test_*
 
 # src/daemon/...
 /collectd
+lex.yy.c

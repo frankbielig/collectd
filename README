@@ -372,6 +372,11 @@ Features
     - processes
       Process counts: Number of running, sleeping, zombie, ... processes.
 
+    - processes2
+      Process counts: Number of running, sleeping, zombie, ... processes.
+      Extension of processes plugin with more configuration for process ownwers.
+      Either processes or processes2 should be activated at same time.
+
     - procevent
       Listens for process starts and exits via netlink.
 

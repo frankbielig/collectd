@@ -1792,6 +1792,21 @@ processes_la_LIBADD += libtaskstats.la
 endif
 endif
 
+if BUILD_PLUGIN_PROCESSES2
+pkglib_LTLIBRARIES += processes2.la
+processes2_la_SOURCES = src/processes2.c
+processes2_la_CPPFLAGS = $(AM_CPPFLAGS)
+processes2_la_LDFLAGS = $(PLUGIN_LDFLAGS)
+processes2_la_LIBADD =
+if BUILD_WITH_LIBKVM_GETPROCS
+processes2_la_LIBADD += -lkvm
+endif
+if HAVE_LIBMNL
+processes2_la_CPPFLAGS += -DHAVE_LIBTASKSTATS=1
+processes2_la_LIBADD += libtaskstats.la
+endif
+endif
+
 if BUILD_PLUGIN_PROCEVENT
 pkglib_LTLIBRARIES += procevent.la
 procevent_la_SOURCES = src/procevent.c
