@@ -1467,6 +1467,11 @@
 #		CollectFileDescriptor false
 #		CollectContextSwitch true
 #	</Process>
+#	<ProcessMatch "name" "cmd line regex" "user name regex">
+#		CollectFileDescriptor false
+#		CollectContextSwitch true
+#	</Process>
+#   ProcessMatchByUser false
 #</Plugin>
 
 #<Plugin processes2>
