@@ -2475,6 +2475,53 @@ AC_SUBST(BUILD_WITH_LIBDLT_LDFLAGS)
 AC_SUBST(BUILD_WITH_LIBDLT_LIBS)
 # }}}
 
+# --with-libsystemd {{{
+AC_ARG_WITH([libsystemd],
+  [AS_HELP_STRING([--with-libsystemd@<:@=PREFIX@:>@], [Path to libsystemd.])],
+  [
+    if test "x$withval" != "xno" && test "x$withval" != "xyes"; then
+      with_libsystemd_cppflags="-I$withval/include"
+      with_libsystemd_ldflags="-L$withval/lib"
+      with_libsystemd="yes"
+    else
+      with_libsystemd="$withval"
+    fi
+  ],
+  [with_libsystemd="yes"]
+)
+
+if test "x$with_libsystemd" = "xyes"; then
+  SAVE_CPPFLAGS="$CPPFLAGS"
+  CPPFLAGS="$CPPFLAGS $with_libsystemd_cppflags"
+
+  AC_CHECK_HEADERS([systemd/sd-bus.h],
+    [with_libsystemd="yes"],
+    [with_libsystemd="no (systemd/sd-bus.h not found)"]
+  )
+
+  CPPFLAGS="$SAVE_CPPFLAGS"
+fi
+
+if test "x$with_libsystemd" = "xyes"; then
+  SAVE_LDFLAGS="$LDFLAGS"
+  LDFLAGS="$LDFLAGS $with_libsystemd_ldflags"
+
+  AC_CHECK_LIB([systemd], [sd_bus_open],
+    [with_libsystemd="yes"],
+    [with_libsystemd="no (Symbol 'sd_bus_open' not found)"]
+  )
+
+  LDFLAGS="$SAVE_LDFLAGS"
+fi
+
+BUILD_WITH_LIBSYSTEMD_CFLAGS="$with_libsystemd_cppflags"
+BUILD_WITH_LIBSYSTEMD_LDFLAGS="$with_libsystemd_ldflags"
+BUILD_WITH_LIBSYSTEMD_LIBS="-lsystemd"
+AC_SUBST(BUILD_WITH_LIBSYSTEMD_CFLAGS)
+AC_SUBST(BUILD_WITH_LIBSYSTEMD_LDFLAGS)
+AC_SUBST(BUILD_WITH_LIBSYSTEMD_LIBS)
+# }}}
+
 # --with-libdpdk {{{
 AC_ARG_VAR([LIBDPDK_CPPFLAGS], [Preprocessor flags for libdpdk])
 AC_ARG_VAR([LIBDPDK_CFLAGS], [Compiler flags for libdpdk])
@@ -7207,6 +7254,7 @@ AC_PLUGIN([redis],               [$with_libhiredis],          [Redis plugin])
 AC_PLUGIN([routeros],            [$with_librouteros],         [RouterOS plugin])
 AC_PLUGIN([rrdcached],           [$librrd_rrdc_update],       [RRDTool output plugin])
 AC_PLUGIN([rrdtool],             [$with_librrd],              [RRDTool output plugin])
+AC_PLUGIN([sdbus],               [$with_libsystemd],          [D-Bus statistics based on systemd])
 AC_PLUGIN([sensors],             [$with_libsensors],          [lm_sensors statistics])
 AC_PLUGIN([serial],              [$plugin_serial],            [serial port traffic])
 AC_PLUGIN([sigrok],              [$with_libsigrok],           [sigrok acquisition sources])
@@ -7655,6 +7703,7 @@ AC_MSG_RESULT([    redis . . . . . . . . $enable_redis])
 AC_MSG_RESULT([    routeros  . . . . . . $enable_routeros])
 AC_MSG_RESULT([    rrdcached . . . . . . $enable_rrdcached])
 AC_MSG_RESULT([    rrdtool . . . . . . . $enable_rrdtool])
+AC_MSG_RESULT([    sdbus . . . . . . . . $enable_sdbus])
 AC_MSG_RESULT([    sensors . . . . . . . $enable_sensors])
 AC_MSG_RESULT([    serial  . . . . . . . $enable_serial])
 AC_MSG_RESULT([    sigrok  . . . . . . . $enable_sigrok])

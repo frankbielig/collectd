@@ -1880,6 +1880,26 @@ rrdtool_la_LDFLAGS = $(PLUGIN_LDFLAGS) $(BUILD_WITH_LIBRRD_LDFLAGS)
 rrdtool_la_LIBADD = $(BUILD_WITH_LIBRRD_LIBS)
 endif
 
+if BUILD_PLUGIN_SDBUS
+pkglib_LTLIBRARIES += sdbus.la
+sdbus_la_SOURCES = src/sdbus.c
+sdbus_la_CFLAGS = $(AM_CFLAGS) $(BUILD_WITH_LIBSYSTEMD_CFLAGS)
+sdbus_la_LDFLAGS = $(PLUGIN_LDFLAGS) $(BUILD_WITH_LIBSYSTEMD_LDFLAGS)
+sdbus_la_LIBADD = libformat_graphite.la libformat_json.la $(BUILD_WITH_LIBSYSTEMD_LIBS)
+
+test_plugin_sdbus_SOURCES = src/sdbus_test.c \
+  src/daemon/configfile.c src/daemon/types_list.c
+test_plugin_sdbus_CFLAGS = $(AM_CFLAGS) $(BUILD_WITH_LIBSYSTEMD_CFLAGS)
+test_plugin_sdbus_LDFLAGS = $(PLUGIN_LDFLAGS) $(BUILD_WITH_LIBSYSTEMD_LDFLAGS)
+test_plugin_sdbus_LDADD = \
+  liboconfig.la \
+  libplugin_mock.la \
+  libmetadata.la \
+  $(BUILD_WITH_LIBSYSTEMD_LIBS)
+check_PROGRAMS += test_plugin_sdbus
+TESTS += test_plugin_sdbus
+endif
+
 if BUILD_PLUGIN_SENSORS
 pkglib_LTLIBRARIES += sensors.la
 sensors_la_SOURCES = src/sensors.c
