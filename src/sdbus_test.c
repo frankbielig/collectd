@@ -43,9 +43,11 @@ DEF_TEST(connect) {
 DEF_TEST(search) {
   if (setup(TARGET_LOCAL_USER) == 0) {
     char **names = sdbus_names(bus, false);
+    CHECK_NOT_NULL(names);
     int count = strv_length(names);
     INFO("found %d names", count);
     OK1(count > 0, "at least on service should be listed");
+    strv_free(names);
   }
 
   teardown();

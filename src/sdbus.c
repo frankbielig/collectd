@@ -68,6 +68,7 @@ derive_t strv_length(char *const *strv) {
 static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type) {
   int r;
 
+  *bus = NULL;
   switch (type) {
   case TARGET_LOCAL:
     r = sd_bus_default(bus);
@@ -204,17 +205,21 @@ static int sdbus_read(void) {
   derive_t acquried;
   derive_t activatable;
 
-  if (sdbus_count_active(bus_user, &unique, &acquried))
-    return -1;
-  if (sdbus_count_activatable(bus_user, &activatable))
-    return -1;
-  sdbus_submit("user", unique, acquried, activatable);
+  if (bus_user != NULL) {
+    if (sdbus_count_active(bus_user, &unique, &acquried))
+      return -1;
+    if (sdbus_count_activatable(bus_user, &activatable))
+      return -1;
+    sdbus_submit("user", unique, acquried, activatable);
+  }
 
-  if (sdbus_count_active(bus_system, &unique, &acquried))
-    return -1;
-  if (sdbus_count_activatable(bus_system, &activatable))
-    return -1;
-  sdbus_submit("system", unique, acquried, activatable);
+  if (bus_system != NULL) {
+    if (sdbus_count_active(bus_system, &unique, &acquried))
+      return -1;
+    if (sdbus_count_activatable(bus_system, &activatable))
+      return -1;
+    sdbus_submit("system", unique, acquried, activatable);
+  }
 
   return 0;
 }
@@ -225,17 +230,17 @@ static int sdbus_read(void) {
 
 /* -------------------------------------------------------------------------- */
 static int sdbus_config(oconfig_item_t *ci) {
-  INFO(LOG_KEY "configuration"); 
-  return 0; 
+  INFO(LOG_KEY "configuration");
+  return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 static int sdbus_init(void) {
   if (sdbus_acquire(&bus_user, TARGET_LOCAL_USER) != 0) {
-    return -1;
+    WARNING(LOG_KEY "could not connect to user bus");
   }
   if (sdbus_acquire(&bus_system, TARGET_LOCAL_SYSTEM) != 0) {
-    return -1;
+    WARNING(LOG_KEY "could not connect to system bus");
   }
 
   return 0;
@@ -243,10 +248,10 @@ static int sdbus_init(void) {
 
 /* -------------------------------------------------------------------------- */
 static int sdbus_shutdown(void) {
-  if (sdbus_close(&bus_system) != 0) {
+  if (bus_system != NULL && sdbus_close(&bus_system) != 0) {
     return -1;
   }
-  if (sdbus_close(&bus_user) != 0) {
+  if (bus_user != NULL && sdbus_close(&bus_user) != 0) {
     return -1;
   }
   return 0;
