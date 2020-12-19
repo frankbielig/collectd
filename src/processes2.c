@@ -41,6 +41,8 @@
 #include "plugin.h"
 #include "utils/common/common.h"
 
+#define LOG_KEY "processes2 plugin: "
+
 #if HAVE_LIBTASKSTATS
 #include "utils/taskstats/taskstats.h"
 #include "utils_complain.h"
@@ -146,8 +148,6 @@
 #ifndef MAXCOMLEN
 #define MAXCOMLEN 16
 #endif
-
-#define LOG_KEY "processes2 plugin: "
 
 /* #endif KERNEL_SOLARIS */
 
