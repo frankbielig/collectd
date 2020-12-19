@@ -1662,7 +1662,7 @@ static char *ps_get_cmdline(long pid, char *name, char *buf, size_t buf_len) {
 } /* char *ps_get_cmdline (...) */
 
 static char *ps_get_username(unsigned long uid, char *buf, size_t buf_len) {
-  INFO("processes plugin: get user name for %lu\n", uid);
+  DEBUG("processes plugin: get user name for %lu\n", uid);
   if (uid == 0) {
     sstrncpy(buf, "root", buf_len);
   }
