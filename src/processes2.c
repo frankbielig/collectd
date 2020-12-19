@@ -147,6 +147,8 @@
 #define MAXCOMLEN 16
 #endif
 
+#define LOG_KEY "processes2 plugin: "
+
 /* #endif KERNEL_SOLARIS */
 
 #else
@@ -365,7 +367,7 @@ static procstat_t *ps_list_register(const char *name,
 
   new = calloc(1, sizeof(*new));
   if (new == NULL) {
-    ERROR("processes plugin: ps_list_register: calloc failed.");
+    ERROR(LOG_KEY "ps_list_register: calloc failed.");
     return NULL;
   }
   sstrncpy(new->name, name, sizeof(new->name));
@@ -390,7 +392,7 @@ static procstat_t *ps_list_register(const char *name,
           cmd_regexp, name);
     new->cmd_re = malloc(sizeof(*new->cmd_re));
     if (new->cmd_re == NULL) {
-      ERROR("processes plugin: ps_list_register: malloc failed.");
+      ERROR(LOG_KEY "ps_list_register: malloc failed.");
       sfree(new);
       return NULL;
     }
@@ -410,7 +412,7 @@ static procstat_t *ps_list_register(const char *name,
           user_regexp, name);
     new->user_re = malloc(sizeof(*new->user_re));
     if (new->user_re == NULL) {
-      ERROR("processes plugin: ps_list_register: malloc failed.");
+      ERROR(LOG_KEY "ps_list_register: malloc failed.");
       sfree(new);
       return NULL;
     }
@@ -426,7 +428,7 @@ static procstat_t *ps_list_register(const char *name,
   }
 #else
   if (cmd_regexp != NULL) {
-    ERROR("processes plugin: ps_list_register: "
+    ERROR(LOG_KEY "ps_list_register: "
           "Regular expression \"%s\" found for command line in config "
           "file, but support for regular expressions "
           "has been disabled at compile time.",
@@ -435,7 +437,7 @@ static procstat_t *ps_list_register(const char *name,
     return NULL;
   }
   if (user_regexp != NULL) {
-    ERROR("processes plugin: ps_list_register: "
+    ERROR(LOG_KEY "ps_list_register: "
           "Regular expression \"%s\" found for user in config "
           "file, but support for regular expressions "
           "has been disabled at compile time.",
@@ -447,7 +449,7 @@ static procstat_t *ps_list_register(const char *name,
 
   for (ptr = list_head_g; ptr != NULL; ptr = ptr->next) {
     if (strcmp(ptr->name, name) == 0) {
-      WARNING("processes plugin: You have configured more "
+      WARNING(LOG_KEY "You have configured more "
               "than one `Process' or "
               "`ProcessMatch' with the same name. "
               "All but the first setting will be "
@@ -720,11 +722,11 @@ static void ps_tune_instance(oconfig_item_t *ci, procstat_t *ps) {
 #if HAVE_LIBTASKSTATS
       cf_util_get_boolean(c, &ps->report_delay);
 #else
-      WARNING("processes plugin: The plugin has been compiled without support "
+      WARNING(LOG_KEY "The plugin has been compiled without support "
               "for the \"CollectDelayAccounting\" option.");
 #endif
     } else {
-      ERROR("processes plugin: Option \"%s\" not allowed here.", c->key);
+      ERROR(LOG_KEY "Option \"%s\" not allowed here.", c->key);
     }
   } /* for (ci->children) */
 } /* void ps_tune_instance */
@@ -744,7 +746,7 @@ static int ps_config(oconfig_item_t *ci) {
 
     if (strcasecmp(c->key, "Process") == 0) {
       if ((c->values_num != 1) || (OCONFIG_TYPE_STRING != c->values[0].type)) {
-        ERROR("processes plugin: `Process' expects exactly "
+        ERROR(LOG_KEY "`Process' expects exactly "
               "one string argument (got %i).",
               c->values_num);
         continue;
@@ -752,7 +754,7 @@ static int ps_config(oconfig_item_t *ci) {
 
 #if KERNEL_LINUX || KERNEL_SOLARIS || KERNEL_FREEBSD
       if (strlen(c->values[0].value.string) > max_procname_len) {
-        WARNING("processes plugin: this platform has a %" PRIsz
+        WARNING(LOG_KEY "this platform has a %" PRIsz
                 " character limit "
                 "to process names. The `Process \"%s\"' option will "
                 "not work as expected.",
@@ -769,7 +771,7 @@ static int ps_config(oconfig_item_t *ci) {
           (c->values_num > 3) ||
           (OCONFIG_TYPE_STRING != c->values[0].type) ||
           (OCONFIG_TYPE_STRING != c->values[1].type)) {
-        ERROR("processes plugin: `ProcessMatch' needs "
+        ERROR(LOG_KEY "`ProcessMatch' needs "
               "two or three string arguments (got %i).",
               c->values_num);
         continue;
@@ -812,11 +814,11 @@ static int ps_config(oconfig_item_t *ci) {
 #if HAVE_LIBTASKSTATS
       cf_util_get_boolean(c, &report_delay);
 #else
-      WARNING("processes plugin: The plugin has been compiled without support "
+      WARNING(LOG_KEY "The plugin has been compiled without support "
               "for the \"CollectDelayAccounting\" option.");
 #endif
     } else {
-      ERROR("processes plugin: The `%s' configuration option is not "
+      ERROR(LOG_KEY "The `%s' configuration option is not "
             "understood and will be ignored.",
             c->key);
       continue;
@@ -857,7 +859,7 @@ static int ps_init(void) {
   if (taskstats_handle == NULL) {
     taskstats_handle = ts_create();
     if (taskstats_handle == NULL) {
-      WARNING("processes plugin: Creating taskstats handle failed.");
+      WARNING(LOG_KEY "Creating taskstats handle failed.");
     }
   }
 #endif
@@ -1324,7 +1326,7 @@ static int ps_delay(process_entry_t *ps) {
       if (getuid() == 0) {
         c_complain(
             LOG_ERR, &c,
-            "processes plugin: Reading Delay Accounting metric failed: %s. "
+            LOG_KEY "Reading Delay Accounting metric failed: %s. "
             "collectd is running as root, but missing the CAP_NET_ADMIN "
             "capability. The most common cause for this is that the init "
             "system is dropping capabilities.",
@@ -1332,7 +1334,7 @@ static int ps_delay(process_entry_t *ps) {
       } else {
         c_complain(
             LOG_ERR, &c,
-            "processes plugin: Reading Delay Accounting metric failed: %s. "
+            LOG_KEY "Reading Delay Accounting metric failed: %s. "
             "collectd is not running as root and missing the CAP_NET_ADMIN "
             "capability. Either run collectd as root or grant it the "
             "CAP_NET_ADMIN capability using \"setcap cap_net_admin=ep " PREFIX
@@ -1340,20 +1342,20 @@ static int ps_delay(process_entry_t *ps) {
             STRERROR(status));
       }
     } else {
-      ERROR("processes plugin: ts_delay_by_tgid failed: %s. The CAP_NET_ADMIN "
+      ERROR(LOG_KEY "ts_delay_by_tgid failed: %s. The CAP_NET_ADMIN "
             "capability is available (I checked), so this error is utterly "
             "unexpected.",
             STRERROR(status));
     }
 #else
     c_complain(LOG_ERR, &c,
-               "processes plugin: Reading Delay Accounting metric failed: %s. "
+               LOG_KEY "Reading Delay Accounting metric failed: %s. "
                "Reading Delay Accounting metrics requires root privileges.",
                STRERROR(status));
 #endif
     return status;
   } else if (status != 0) {
-    ERROR("processes plugin: ts_delay_by_tgid failed: %s", STRERROR(status));
+    ERROR(LOG_KEY "ts_delay_by_tgid failed: %s", STRERROR(status));
     return status;
   }
 
@@ -1445,7 +1447,7 @@ static int ps_read_process(long pid, process_entry_t *ps, char *state) {
   /* Either '(' or ')' is not found or they are in the wrong order.
    * Anyway, something weird that shouldn't happen ever. */
   if (name_start_pos >= name_end_pos) {
-    ERROR("processes plugin: name_start_pos = %" PRIsz
+    ERROR(LOG_KEY "name_start_pos = %" PRIsz
           " >= name_end_pos = %" PRIsz,
           name_start_pos, name_end_pos);
     return -1;
@@ -1463,7 +1465,7 @@ static int ps_read_process(long pid, process_entry_t *ps, char *state) {
 
   fields_len = strsplit(buffer_ptr, fields, STATIC_ARRAY_SIZE(fields));
   if (fields_len < 22) {
-    DEBUG("processes plugin: ps_read_process (pid = %li):"
+    DEBUG(LOG_KEY "ps_read_process (pid = %li):"
           " `%s' has only %i fields..",
           pid, filename, fields_len);
     return -1;
@@ -1489,7 +1491,7 @@ static int ps_read_process(long pid, process_entry_t *ps, char *state) {
 
   /* Leave the rest at zero if this is only a zombi */
   if (ps->num_proc == 0) {
-    DEBUG("processes plugin: This is only a zombie: pid = %li; "
+    DEBUG(LOG_KEY "This is only a zombie: pid = %li; "
           "name = %s;",
           pid, ps->name);
     return 0;
@@ -1591,7 +1593,7 @@ static char *ps_get_cmdline(long pid, char *name, char *buf, size_t buf_len) {
     /* ENOENT means the process exited while we were handling it.
      * Don't complain about this, it only fills the logs. */
     if (errno != ENOENT)
-      WARNING("processes plugin: Failed to open `%s': %s.", file, STRERRNO);
+      WARNING(LOG_KEY "Failed to open `%s': %s.", file, STRERRNO);
     return NULL;
   }
 
@@ -1610,7 +1612,7 @@ static char *ps_get_cmdline(long pid, char *name, char *buf, size_t buf_len) {
       if ((EAGAIN == errno) || (EINTR == errno))
         continue;
 
-      WARNING("processes plugin: Failed to read from `%s': %s.", file,
+      WARNING(LOG_KEY "Failed to read from `%s': %s.", file,
               STRERRNO);
       close(fd);
       return NULL;
@@ -1662,7 +1664,7 @@ static char *ps_get_cmdline(long pid, char *name, char *buf, size_t buf_len) {
 } /* char *ps_get_cmdline (...) */
 
 static char *ps_get_username(unsigned long uid, char *buf, size_t buf_len) {
-  DEBUG("processes plugin: get user name for %lu\n", uid);
+  DEBUG(LOG_KEY "get user name for %lu\n", uid);
   if (uid == 0) {
     sstrncpy(buf, "root", buf_len);
   }
@@ -1687,7 +1689,7 @@ static int read_fork_rate(void) {
 
   proc_stat = fopen("/proc/stat", "r");
   if (proc_stat == NULL) {
-    ERROR("processes plugin: fopen (/proc/stat) failed: %s", STRERRNO);
+    ERROR(LOG_KEY "fopen (/proc/stat) failed: %s", STRERRNO);
     return -1;
   }
 
@@ -1731,7 +1733,7 @@ static char *ps_get_cmdline(long pid,
 
   status = read_file_contents(path, &info, sizeof(info));
   if ((status < 0) || (((size_t)status) != sizeof(info))) {
-    ERROR("processes plugin: Unexpected return value "
+    ERROR(LOG_KEY "Unexpected return value "
           "while reading \"%s\": "
           "Returned %zd but expected %" PRIsz ".",
           path, status, buffer_size);
@@ -2291,14 +2293,14 @@ static int ps_read(void) {
   /* Open the kvm interface, get a descriptor */
   kd = kvm_openfiles(NULL, "/dev/null", NULL, 0, errbuf);
   if (kd == NULL) {
-    ERROR("processes plugin: Cannot open kvm interface: %s", errbuf);
+    ERROR(LOG_KEY "Cannot open kvm interface: %s", errbuf);
     return 0;
   }
 
   /* Get the list of processes. */
   procs = kvm_getprocs(kd, KERN_PROC_ALL, 0, &count);
   if (procs == NULL) {
-    ERROR("processes plugin: Cannot get kvm processes list: %s",
+    ERROR(LOG_KEY "Cannot get kvm processes list: %s",
           kvm_geterr(kd));
     kvm_close(kd);
     return 0;
@@ -2328,7 +2330,7 @@ static int ps_read(void) {
 
           status = strjoin(cmdline, sizeof(cmdline), argv, argc, " ");
           if (status < 0)
-            WARNING("processes plugin: Command line did not fit into buffer.");
+            WARNING(LOG_KEY "Command line did not fit into buffer.");
           else
             have_cmdline = 1;
         }
@@ -2451,7 +2453,7 @@ static int ps_read(void) {
   /* Open the kvm interface, get a descriptor */
   kd = kvm_openfiles(NULL, NULL, NULL, KVM_NO_FILES, errbuf);
   if (kd == NULL) {
-    ERROR("processes plugin: Cannot open kvm interface: %s", errbuf);
+    ERROR(LOG_KEY "Cannot open kvm interface: %s", errbuf);
     return (0);
   }
 
@@ -2459,7 +2461,7 @@ static int ps_read(void) {
   procs =
       kvm_getproc2(kd, KERN_PROC_ALL, 0, sizeof(struct kinfo_proc2), &count);
   if (procs == NULL) {
-    ERROR("processes plugin: Cannot get kvm processes list: %s",
+    ERROR(LOG_KEY "Cannot get kvm processes list: %s",
           kvm_geterr(kd));
     kvm_close(kd);
     return (0);
@@ -2489,7 +2491,7 @@ static int ps_read(void) {
 
           status = strjoin(cmdline, sizeof(cmdline), argv, argc, " ");
           if (status < 0)
-            WARNING("processes plugin: Command line did not fit into buffer.");
+            WARNING(LOG_KEY "Command line did not fit into buffer.");
           else
             have_cmdline = 1;
         }
@@ -2628,14 +2630,14 @@ static int ps_read(void) {
   /* Open the kvm interface, get a descriptor */
   kd = kvm_openfiles(NULL, NULL, NULL, KVM_NO_FILES, errbuf);
   if (kd == NULL) {
-    ERROR("processes plugin: Cannot open kvm interface: %s", errbuf);
+    ERROR(LOG_KEY "Cannot open kvm interface: %s", errbuf);
     return 0;
   }
 
   /* Get the list of processes. */
   procs = kvm_getprocs(kd, KERN_PROC_ALL, 0, sizeof(struct kinfo_proc), &count);
   if (procs == NULL) {
-    ERROR("processes plugin: Cannot get kvm processes list: %s",
+    ERROR(LOG_KEY "Cannot get kvm processes list: %s",
           kvm_geterr(kd));
     kvm_close(kd);
     return 0;
@@ -2665,7 +2667,7 @@ static int ps_read(void) {
 
           status = strjoin(cmdline, sizeof(cmdline), argv, argc, " ");
           if (status < 0)
-            WARNING("processes plugin: Command line did not fit into buffer.");
+            WARNING(LOG_KEY "Command line did not fit into buffer.");
           else
             have_cmdline = 1;
         }
