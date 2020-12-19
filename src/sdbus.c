@@ -52,8 +52,8 @@ char **strv_free(char **strv) {
 }
 
 /* -------------------------------------------------------------------------- */
-size_t strv_length(char *const *strv) {
-  size_t n = 0;
+derive_t strv_length(char *const *strv) {
+  derive_t n = 0;
 
   if (!strv)
     return 0;
@@ -136,7 +136,8 @@ static char **sdbus_names(sd_bus *bus, bool activatable) {
 }
 
 /* -------------------------------------------------------------------------- */
-static int sdbus_count_active(sd_bus *bus, int *unique, int *acquired) {
+static int sdbus_count_active(sd_bus *bus, derive_t *unique,
+                              derive_t *acquired) {
   char **names = sdbus_names(bus, false);
   char **strv;
 
@@ -149,10 +150,8 @@ static int sdbus_count_active(sd_bus *bus, int *unique, int *acquired) {
   for (strv = names; *strv; strv++) {
     if ((*strv)[0] == ':') {
       ++*unique;
-      DEBUG("unique: %s (%d)", *strv, *unique);
     } else {
       ++*acquired;
-      DEBUG("aquired: %s (%d)", *strv, *acquired);
     }
   }
 
@@ -162,7 +161,7 @@ static int sdbus_count_active(sd_bus *bus, int *unique, int *acquired) {
 }
 
 /* -------------------------------------------------------------------------- */
-static int sdbus_count_activatable(sd_bus *bus, int *activatable) {
+static int sdbus_count_activatable(sd_bus *bus, derive_t *activatable) {
   char **names = sdbus_names(bus, true);
   if (names == NULL)
     return -1;
@@ -177,27 +176,45 @@ static int sdbus_count_activatable(sd_bus *bus, int *activatable) {
 /* collection service functions */
 /* ************************************************************************** */
 
+static void sdbus_submit(const char *instance, derive_t unique,
+                         derive_t acquired, derive_t activatable) {
+  DEBUG("%s: unique=%lu, acquired=%lu, activatable=%lu),", instance, unique,
+        acquired, activatable);
+
+  value_list_t vl = VALUE_LIST_INIT;
+  value_t values[] = {
+      {.absolute = unique},
+      {.absolute = acquired},
+      {.absolute = activatable},
+  };
+
+  vl.values = values;
+  vl.values_len = STATIC_ARRAY_SIZE(values);
+
+  sstrncpy(vl.plugin, "sdbus", sizeof(vl.plugin));
+  sstrncpy(vl.type, "sdbus", sizeof(vl.type));
+  sstrncpy(vl.type_instance, instance, sizeof(vl.type_instance));
+
+  plugin_dispatch_values(&vl);
+}
+
 /* -------------------------------------------------------------------------- */
 static int sdbus_read(void) {
-  int bus_user_unique = 0;
-  int bus_user_acquried = 0;
-  int bus_user_activatable = 0;
-  int bus_system_unique = 0;
-  int bus_system_acquried = 0;
-  int bus_system_activatable = 0;
+  derive_t unique;
+  derive_t acquried;
+  derive_t activatable;
 
-  if (sdbus_count_active(bus_user, &bus_user_unique, &bus_user_acquried))
+  if (sdbus_count_active(bus_user, &unique, &acquried))
     return -1;
-  if (sdbus_count_activatable(bus_user, &bus_user_activatable))
+  if (sdbus_count_activatable(bus_user, &activatable))
     return -1;
-  if (sdbus_count_active(bus_system, &bus_system_unique, &bus_system_acquried))
-    return -1;
-  if (sdbus_count_activatable(bus_system, &bus_system_activatable))
-    return -1;
+  sdbus_submit("user", unique, acquried, activatable);
 
-  INFO("system(%d, %d, %d), user(%d, %d, %d)", bus_system_unique,
-       bus_system_acquried, bus_system_activatable, bus_user_unique,
-       bus_system_acquried, bus_system_activatable);
+  if (sdbus_count_active(bus_system, &unique, &acquried))
+    return -1;
+  if (sdbus_count_activatable(bus_system, &activatable))
+    return -1;
+  sdbus_submit("system", unique, acquried, activatable);
 
   return 0;
 }
@@ -207,7 +224,10 @@ static int sdbus_read(void) {
 /* ************************************************************************** */
 
 /* -------------------------------------------------------------------------- */
-static int sdbus_config(oconfig_item_t *ci) { return 0; }
+static int sdbus_config(oconfig_item_t *ci) {
+  INFO(LOG_KEY "configuration"); 
+  return 0; 
+}
 
 /* -------------------------------------------------------------------------- */
 static int sdbus_init(void) {
