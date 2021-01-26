@@ -359,8 +359,8 @@ static ts_t *taskstats_handle;
 /* put name of process from config to list_head_g tree
  * list_head_g is a list of 'procstat_t' structs with
  * processes names we want to watch */
-static procstat_t *ps_list_register(const char *name, 
-         const char *cmd_regexp, const char *user_regexp) {
+static procstat_t *ps_list_register(const char *name, const char *cmd_regexp,
+                                    const char *user_regexp) {
   procstat_t *new;
   procstat_t *ptr;
   int status;
@@ -388,7 +388,8 @@ static procstat_t *ps_list_register(const char *name,
 
 #if HAVE_REGEX_H
   if (cmd_regexp != NULL) {
-    DEBUG("ProcessMatch: adding \"%s\" as command line criteria to process %s.", 
+    DEBUG(LOG_KEY
+          "ProcessMatch: adding \"%s\" as command line criteria to process %s.",
           cmd_regexp, name);
     new->cmd_re = malloc(sizeof(*new->cmd_re));
     if (new->cmd_re == NULL) {
@@ -399,7 +400,8 @@ static procstat_t *ps_list_register(const char *name,
 
     status = regcomp(new->cmd_re, cmd_regexp, REG_EXTENDED | REG_NOSUB);
     if (status != 0) {
-      DEBUG("ProcessMatch: compiling the regular expression \"%s\" failed.",
+      DEBUG(LOG_KEY
+            "ProcessMatch: compiling the regular expression \"%s\" failed.",
             cmd_regexp);
       sfree(new->cmd_re);
       sfree(new);
@@ -408,7 +410,7 @@ static procstat_t *ps_list_register(const char *name,
   }
 
   if (user_regexp != NULL) {
-    DEBUG("ProcessMatch: adding \"%s\" as use criteria to process %s.", 
+    DEBUG(LOG_KEY "ProcessMatch: adding \"%s\" as use criteria to process %s.",
           user_regexp, name);
     new->user_re = malloc(sizeof(*new->user_re));
     if (new->user_re == NULL) {
@@ -419,7 +421,8 @@ static procstat_t *ps_list_register(const char *name,
 
     status = regcomp(new->user_re, user_regexp, REG_EXTENDED | REG_NOSUB);
     if (status != 0) {
-      DEBUG("ProcessMatch: compiling the regular expression \"%s\" failed.",
+      DEBUG(LOG_KEY
+            "ProcessMatch: compiling the regular expression \"%s\" failed.",
             user_regexp);
       sfree(new->user_re);
       sfree(new);
@@ -429,18 +432,18 @@ static procstat_t *ps_list_register(const char *name,
 #else
   if (cmd_regexp != NULL) {
     ERROR(LOG_KEY "ps_list_register: "
-          "Regular expression \"%s\" found for command line in config "
-          "file, but support for regular expressions "
-          "has been disabled at compile time.",
+                  "Regular expression \"%s\" found for command line in config "
+                  "file, but support for regular expressions "
+                  "has been disabled at compile time.",
           cmd_regexp);
     sfree(new);
     return NULL;
   }
   if (user_regexp != NULL) {
     ERROR(LOG_KEY "ps_list_register: "
-          "Regular expression \"%s\" found for user in config "
-          "file, but support for regular expressions "
-          "has been disabled at compile time.",
+                  "Regular expression \"%s\" found for user in config "
+                  "file, but support for regular expressions "
+                  "has been disabled at compile time.",
           user_regexp);
     sfree(new);
     return NULL;
@@ -450,10 +453,10 @@ static procstat_t *ps_list_register(const char *name,
   for (ptr = list_head_g; ptr != NULL; ptr = ptr->next) {
     if (strcmp(ptr->name, name) == 0) {
       WARNING(LOG_KEY "You have configured more "
-              "than one `Process' or "
-              "`ProcessMatch' with the same name. "
-              "All but the first setting will be "
-              "ignored.");
+                      "than one `Process' or "
+                      "`ProcessMatch' with the same name. "
+                      "All but the first setting will be "
+                      "ignored.");
 #if HAVE_REGEX_H
       sfree(new->cmd_re);
       sfree(new->user_re);
@@ -498,18 +501,19 @@ static int ps_list_match(const char *name, const char *cmdline,
       match_name = true;
   } else
 #endif
-  if (strcmp(ps->name, name) == 0)
+      if (strcmp(ps->name, name) == 0)
     match_name = true;
 
 #if HAVE_PWD_H
   if (ps->user_re != NULL && username != NULL) {
     int status;
-    
-    DEBUG("check against user %s", username);
+
+    DEBUG(LOG_KEY "check against user %s", username);
     status = regexec(ps->user_re, username,
                      /* nmatch = */ 0,
                      /* pmatch = */ NULL,
                      /* eflags = */ 0);
+    DEBUG(LOG_KEY "  result: %d", status);
     if (status != 0)
       match_user = false;
   }
@@ -686,8 +690,8 @@ static void ps_list_reset(void) {
     pse = ps->instances;
     while (pse != NULL) {
       if (pse->age > 0) {
-        DEBUG("Removing this procstat entry cause it's too old: "
-              "id = %lu; name = %s;",
+        DEBUG(LOG_KEY "Removing this procstat entry cause it's too old: "
+                      "id = %lu; name = %s;",
               pse->id, ps->name);
 
         if (pse_prev == NULL) {
@@ -723,7 +727,7 @@ static void ps_tune_instance(oconfig_item_t *ci, procstat_t *ps) {
       cf_util_get_boolean(c, &ps->report_delay);
 #else
       WARNING(LOG_KEY "The plugin has been compiled without support "
-              "for the \"CollectDelayAccounting\" option.");
+                      "for the \"CollectDelayAccounting\" option.");
 #endif
     } else {
       ERROR(LOG_KEY "Option \"%s\" not allowed here.", c->key);
@@ -747,17 +751,16 @@ static int ps_config(oconfig_item_t *ci) {
     if (strcasecmp(c->key, "Process") == 0) {
       if ((c->values_num != 1) || (OCONFIG_TYPE_STRING != c->values[0].type)) {
         ERROR(LOG_KEY "`Process' expects exactly "
-              "one string argument (got %i).",
+                      "one string argument (got %i).",
               c->values_num);
         continue;
       }
 
 #if KERNEL_LINUX || KERNEL_SOLARIS || KERNEL_FREEBSD
       if (strlen(c->values[0].value.string) > max_procname_len) {
-        WARNING(LOG_KEY "this platform has a %" PRIsz
-                " character limit "
-                "to process names. The `Process \"%s\"' option will "
-                "not work as expected.",
+        WARNING(LOG_KEY "this platform has a %" PRIsz " character limit "
+                        "to process names. The `Process \"%s\"' option will "
+                        "not work as expected.",
                 max_procname_len, c->values[0].value.string);
       }
 #endif
@@ -767,18 +770,17 @@ static int ps_config(oconfig_item_t *ci) {
       if (c->children_num != 0 && ps != NULL)
         ps_tune_instance(c, ps);
     } else if (strcasecmp(c->key, "ProcessMatch") == 0) {
-      if ((c->values_num < 2) ||
-          (c->values_num > 3) ||
+      if ((c->values_num < 2) || (c->values_num > 3) ||
           (OCONFIG_TYPE_STRING != c->values[0].type) ||
           (OCONFIG_TYPE_STRING != c->values[1].type)) {
         ERROR(LOG_KEY "`ProcessMatch' needs "
-              "two or three string arguments (got %i).",
+                      "two or three string arguments (got %i).",
               c->values_num);
         continue;
       }
 
-      const char* cmd_regexp = c->values[1].value.string;
-      const char* user_regexp = NULL;
+      const char *cmd_regexp = c->values[1].value.string;
+      const char *user_regexp = NULL;
       if (c->values_num >= 3)
         user_regexp = c->values[2].value.string;
 
@@ -787,23 +789,21 @@ static int ps_config(oconfig_item_t *ci) {
       if (c->children_num != 0 && ps != NULL)
         ps_tune_instance(c, ps);
     } else if (strcasecmp(c->key, "ProcessMatchByUser") == 0) {
-        bool active;
-        cf_util_get_boolean(c, &active);
-        if (active) {
-          struct passwd *pwd;
-          char regex_buffer[USER_NAME_BUFFER_SIZE + 3];
-          regex_buffer[0] = '^';
-          while ((pwd = getpwent()) != NULL) {
-            sstrncpy(regex_buffer + 1, pwd->pw_name, USER_NAME_BUFFER_SIZE);
-            strncat(regex_buffer, "$", 1);
-          
-            ps = ps_list_register(pwd->pw_name, NULL, regex_buffer);
+      bool active;
+      cf_util_get_boolean(c, &active);
+      if (active) {
+        struct passwd *pwd;
+        char regex_buffer[USER_NAME_BUFFER_SIZE + 3];
+        while ((pwd = getpwent()) != NULL) {
+          snprintf(regex_buffer, USER_NAME_BUFFER_SIZE + 3, "^%s$",
+                   pwd->pw_name);
+          ps = ps_list_register(pwd->pw_name, NULL, regex_buffer);
 
-            if (c->children_num != 0 && ps != NULL)
-              ps_tune_instance(c, ps);
-          }
-          endpwent();
+          if (c->children_num != 0 && ps != NULL)
+            ps_tune_instance(c, ps);
         }
+        endpwent();
+      }
     } else if (strcasecmp(c->key, "CollectContextSwitch") == 0) {
       cf_util_get_boolean(c, &report_ctx_switch);
     } else if (strcasecmp(c->key, "CollectFileDescriptor") == 0) {
@@ -815,11 +815,11 @@ static int ps_config(oconfig_item_t *ci) {
       cf_util_get_boolean(c, &report_delay);
 #else
       WARNING(LOG_KEY "The plugin has been compiled without support "
-              "for the \"CollectDelayAccounting\" option.");
+                      "for the \"CollectDelayAccounting\" option.");
 #endif
     } else {
       ERROR(LOG_KEY "The `%s' configuration option is not "
-            "understood and will be ignored.",
+                    "understood and will be ignored.",
             c->key);
       continue;
     }
@@ -844,7 +844,8 @@ static int ps_init(void) {
 
   if ((status = host_processor_sets(port_host_self, &pset_list,
                                     &pset_list_len)) != KERN_SUCCESS) {
-    ERROR("host_processor_sets failed: %s\n", mach_error_string(status));
+    ERROR(LOG_KEY "host_processor_sets failed: %s\n",
+          mach_error_string(status));
     pset_list = NULL;
     pset_list_len = 0;
     return -1;
@@ -853,7 +854,7 @@ static int ps_init(void) {
 
 #elif KERNEL_LINUX
   pagesize_g = sysconf(_SC_PAGESIZE);
-  DEBUG("pagesize_g = %li; CONFIG_HZ = %i;", pagesize_g, CONFIG_HZ);
+  DEBUG(LOG_KEY "pagesize_g = %li; CONFIG_HZ = %i;", pagesize_g, CONFIG_HZ);
 
 #if HAVE_LIBTASKSTATS
   if (taskstats_handle == NULL) {
@@ -1035,6 +1036,7 @@ static void ps_submit_proc_list(procstat_t *ps) {
   }
 
   DEBUG(
+      LOG_KEY
       "name = %s; num_proc = %lu; num_lwp = %lu; num_fd = %lu; num_maps = %lu; "
       "vmem_size = %lu; vmem_rss = %lu; vmem_data = %lu; "
       "vmem_code = %lu; "
@@ -1088,7 +1090,7 @@ static int ps_read_tasks_status(process_entry_t *ps) {
   snprintf(dirname, sizeof(dirname), "/proc/%li/task", ps->id);
 
   if ((dh = opendir(dirname)) == NULL) {
-    DEBUG("Failed to open directory `%s'", dirname);
+    DEBUG(LOG_KEY "Failed to open directory `%s'", dirname);
     return -1;
   }
 
@@ -1103,12 +1105,12 @@ static int ps_read_tasks_status(process_entry_t *ps) {
     int r = snprintf(filename, sizeof(filename), "/proc/%li/task/%s/status",
                      ps->id, tpid);
     if ((size_t)r >= sizeof(filename)) {
-      DEBUG("Filename too long: `%s'", filename);
+      DEBUG(LOG_KEY "Filename too long: `%s'", filename);
       continue;
     }
 
     if ((fh = fopen(filename, "r")) == NULL) {
-      DEBUG("Failed to open file `%s'", filename);
+      DEBUG(LOG_KEY "Failed to open file `%s'", filename);
       continue;
     }
 
@@ -1138,7 +1140,7 @@ static int ps_read_tasks_status(process_entry_t *ps) {
     } /* while (fgets) */
 
     if (fclose(fh)) {
-      WARNING("processes: fclose: %s", STRERRNO);
+      WARNING(LOG_KEY "fclose: %s", STRERRNO);
     }
   }
   closedir(dh);
@@ -1170,8 +1172,7 @@ static int ps_read_status(long pid, process_entry_t *ps) {
     unsigned long tmp;
     char *endptr;
 
-    if (strncmp(buffer, "Vm", 2) != 0 && \
-        strncmp(buffer, "Threads", 7) != 0 &&\
+    if (strncmp(buffer, "Vm", 2) != 0 && strncmp(buffer, "Threads", 7) != 0 &&
         strncmp(buffer, "Uid", 3) != 0)
       continue;
 
@@ -1199,7 +1200,7 @@ static int ps_read_status(long pid, process_entry_t *ps) {
   } /* while (fgets) */
 
   if (fclose(fh)) {
-    WARNING("processes: fclose: %s", STRERRNO);
+    WARNING(LOG_KEY "fclose: %s", STRERRNO);
   }
 
   ps->uid = uid;
@@ -1221,7 +1222,7 @@ static int ps_read_io(process_entry_t *ps) {
 
   snprintf(filename, sizeof(filename), "/proc/%li/io", ps->id);
   if ((fh = fopen(filename, "r")) == NULL) {
-    DEBUG("ps_read_io: Failed to open file `%s'", filename);
+    DEBUG(LOG_KEY "ps_read_io: Failed to open file `%s'", filename);
     return -1;
   }
 
@@ -1260,7 +1261,7 @@ static int ps_read_io(process_entry_t *ps) {
   } /* while (fgets) */
 
   if (fclose(fh)) {
-    WARNING("processes: fclose: %s", STRERRNO);
+    WARNING(LOG_KEY "fclose: %s", STRERRNO);
   }
   return 0;
 } /* int ps_read_io (...) */
@@ -1273,7 +1274,7 @@ static int ps_count_maps(pid_t pid) {
 
   snprintf(filename, sizeof(filename), "/proc/%d/maps", pid);
   if ((fh = fopen(filename, "r")) == NULL) {
-    DEBUG("ps_count_maps: Failed to open file `%s'", filename);
+    DEBUG(LOG_KEY "ps_count_maps: Failed to open file `%s'", filename);
     return -1;
   }
 
@@ -1284,7 +1285,7 @@ static int ps_count_maps(pid_t pid) {
   } /* while (fgets) */
 
   if (fclose(fh)) {
-    WARNING("processes: fclose: %s", STRERRNO);
+    WARNING(LOG_KEY "fclose: %s", STRERRNO);
   }
   return count;
 } /* int ps_count_maps (...) */
@@ -1298,7 +1299,7 @@ static int ps_count_fd(int pid) {
   snprintf(dirname, sizeof(dirname), "/proc/%i/fd", pid);
 
   if ((dh = opendir(dirname)) == NULL) {
-    DEBUG("Failed to open directory `%s'", dirname);
+    DEBUG(LOG_KEY "Failed to open directory `%s'", dirname);
     return -1;
   }
   while ((ent = readdir(dh)) != NULL) {
@@ -1326,7 +1327,8 @@ static int ps_delay(process_entry_t *ps) {
       if (getuid() == 0) {
         c_complain(
             LOG_ERR, &c,
-            LOG_KEY "Reading Delay Accounting metric failed: %s. "
+            LOG_KEY
+            "Reading Delay Accounting metric failed: %s. "
             "collectd is running as root, but missing the CAP_NET_ADMIN "
             "capability. The most common cause for this is that the init "
             "system is dropping capabilities.",
@@ -1334,7 +1336,8 @@ static int ps_delay(process_entry_t *ps) {
       } else {
         c_complain(
             LOG_ERR, &c,
-            LOG_KEY "Reading Delay Accounting metric failed: %s. "
+            LOG_KEY
+            "Reading Delay Accounting metric failed: %s. "
             "collectd is not running as root and missing the CAP_NET_ADMIN "
             "capability. Either run collectd as root or grant it the "
             "CAP_NET_ADMIN capability using \"setcap cap_net_admin=ep " PREFIX
@@ -1342,14 +1345,16 @@ static int ps_delay(process_entry_t *ps) {
             STRERROR(status));
       }
     } else {
-      ERROR(LOG_KEY "ts_delay_by_tgid failed: %s. The CAP_NET_ADMIN "
+      ERROR(LOG_KEY
+            "ts_delay_by_tgid failed: %s. The CAP_NET_ADMIN "
             "capability is available (I checked), so this error is utterly "
             "unexpected.",
             STRERROR(status));
     }
 #else
     c_complain(LOG_ERR, &c,
-               LOG_KEY "Reading Delay Accounting metric failed: %s. "
+               LOG_KEY
+               "Reading Delay Accounting metric failed: %s. "
                "Reading Delay Accounting metrics requires root privileges.",
                STRERROR(status));
 #endif
@@ -1447,8 +1452,7 @@ static int ps_read_process(long pid, process_entry_t *ps, char *state) {
   /* Either '(' or ')' is not found or they are in the wrong order.
    * Anyway, something weird that shouldn't happen ever. */
   if (name_start_pos >= name_end_pos) {
-    ERROR(LOG_KEY "name_start_pos = %" PRIsz
-          " >= name_end_pos = %" PRIsz,
+    ERROR(LOG_KEY "name_start_pos = %" PRIsz " >= name_end_pos = %" PRIsz,
           name_start_pos, name_end_pos);
     return -1;
   }
@@ -1466,7 +1470,7 @@ static int ps_read_process(long pid, process_entry_t *ps, char *state) {
   fields_len = strsplit(buffer_ptr, fields, STATIC_ARRAY_SIZE(fields));
   if (fields_len < 22) {
     DEBUG(LOG_KEY "ps_read_process (pid = %li):"
-          " `%s' has only %i fields..",
+                  " `%s' has only %i fields..",
           pid, filename, fields_len);
     return -1;
   }
@@ -1482,7 +1486,7 @@ static int ps_read_process(long pid, process_entry_t *ps, char *state) {
       /* No VMem data */
       ps->vmem_data = -1;
       ps->vmem_code = -1;
-      DEBUG("ps_read_process: did not get vmem data for pid %li", pid);
+      DEBUG(LOG_KEY "ps_read_process: did not get vmem data for pid %li", pid);
     }
     if (ps->num_lwp == 0)
       ps->num_lwp = 1;
@@ -1492,7 +1496,7 @@ static int ps_read_process(long pid, process_entry_t *ps, char *state) {
   /* Leave the rest at zero if this is only a zombi */
   if (ps->num_proc == 0) {
     DEBUG(LOG_KEY "This is only a zombie: pid = %li; "
-          "name = %s;",
+                  "name = %s;",
           pid, ps->name);
     return 0;
   }
@@ -1560,7 +1564,7 @@ static int procs_running(void) {
    */
   running = strstr(buffer, id);
   if (!running) {
-    WARNING("procs_running not found");
+    WARNING(LOG_KEY "procs_running not found");
     return -1;
   }
   running += strlen(id);
@@ -1612,8 +1616,7 @@ static char *ps_get_cmdline(long pid, char *name, char *buf, size_t buf_len) {
       if ((EAGAIN == errno) || (EINTR == errno))
         continue;
 
-      WARNING(LOG_KEY "Failed to read from `%s': %s.", file,
-              STRERRNO);
+      WARNING(LOG_KEY "Failed to read from `%s': %s.", file, STRERRNO);
       close(fd);
       return NULL;
     }
@@ -1667,15 +1670,14 @@ static char *ps_get_username(unsigned long uid, char *buf, size_t buf_len) {
   DEBUG(LOG_KEY "get user name for %lu\n", uid);
   if (uid == 0) {
     sstrncpy(buf, "root", buf_len);
-  }
-  else {
+  } else {
 #ifdef HAVE_PWD_H
-  struct passwd* pw = getpwuid(uid);
-  if (pw != NULL) 
-    sstrncpy(buf, pw->pw_name, buf_len);
-  else
-#endif  
-    sstrncpy(buf, "unknown", buf_len);
+    struct passwd *pw = getpwuid(uid);
+    if (pw != NULL)
+      sstrncpy(buf, pw->pw_name, buf_len);
+    else
+#endif
+      sstrncpy(buf, "unknown", buf_len);
   }
 
   return buf;
@@ -1734,8 +1736,8 @@ static char *ps_get_cmdline(long pid,
   status = read_file_contents(path, &info, sizeof(info));
   if ((status < 0) || (((size_t)status) != sizeof(info))) {
     ERROR(LOG_KEY "Unexpected return value "
-          "while reading \"%s\": "
-          "Returned %zd but expected %" PRIsz ".",
+                  "while reading \"%s\": "
+                  "Returned %zd but expected %" PRIsz ".",
           path, status, buffer_size);
     return NULL;
   }
@@ -1930,7 +1932,7 @@ static int mach_get_task_name(task_t t, int *pid, char *name,
   strncpy(name, kp.kp_proc.p_comm, name_max_len - 1);
   name[name_max_len - 1] = '\0';
 
-  DEBUG("pid = %i; name = %s;", *pid, name);
+  DEBUG(LOG_KEY "pid = %i; name = %s;", *pid, name);
 
   /* We don't do the special handling for `p_comm == "LaunchCFMApp"' as
    * `top' does it, because it is a lot of work and only used when
@@ -2079,7 +2081,7 @@ static int ps_read(void) {
          * thread is nonsense, since the task/process
          * is dead. */
         zombies++;
-        DEBUG("task_threads failed: %s", mach_error_string(status));
+        DEBUG(LOG_KEY "task_threads failed: %s", mach_error_string(status));
         if (task_list[task] != port_task_self)
           mach_port_deallocate(port_task_self, task_list[task]);
         continue; /* with next task_list */
@@ -2216,7 +2218,7 @@ static int ps_read(void) {
 
     status = ps_read_process(pid, &pse, &state);
     if (status != 0) {
-      DEBUG("ps_read_process failed: %i", status);
+      DEBUG(LOG_KEY "ps_read_process failed: %i", status);
       continue;
     }
 
@@ -2242,7 +2244,7 @@ static int ps_read(void) {
     }
 
     ps_list_add(pse.name,
-                ps_get_cmdline(pid, pse.name, cmdline, sizeof(cmdline)), 
+                ps_get_cmdline(pid, pse.name, cmdline, sizeof(cmdline)),
                 ps_get_username(pse.uid, username, sizeof(username)), &pse);
   }
 
@@ -2300,8 +2302,7 @@ static int ps_read(void) {
   /* Get the list of processes. */
   procs = kvm_getprocs(kd, KERN_PROC_ALL, 0, &count);
   if (procs == NULL) {
-    ERROR(LOG_KEY "Cannot get kvm processes list: %s",
-          kvm_geterr(kd));
+    ERROR(LOG_KEY "Cannot get kvm processes list: %s", kvm_geterr(kd));
     kvm_close(kd);
     return 0;
   }
@@ -2461,8 +2462,7 @@ static int ps_read(void) {
   procs =
       kvm_getproc2(kd, KERN_PROC_ALL, 0, sizeof(struct kinfo_proc2), &count);
   if (procs == NULL) {
-    ERROR(LOG_KEY "Cannot get kvm processes list: %s",
-          kvm_geterr(kd));
+    ERROR(LOG_KEY "Cannot get kvm processes list: %s", kvm_geterr(kd));
     kvm_close(kd);
     return (0);
   }
@@ -2637,8 +2637,7 @@ static int ps_read(void) {
   /* Get the list of processes. */
   procs = kvm_getprocs(kd, KERN_PROC_ALL, 0, sizeof(struct kinfo_proc), &count);
   if (procs == NULL) {
-    ERROR(LOG_KEY "Cannot get kvm processes list: %s",
-          kvm_geterr(kd));
+    ERROR(LOG_KEY "Cannot get kvm processes list: %s", kvm_geterr(kd));
     kvm_close(kd);
     return 0;
   }
@@ -2938,7 +2937,7 @@ static int ps_read(void) {
 
     status = ps_read_process(pid, &pse, &state);
     if (status != 0) {
-      DEBUG("ps_read_process failed: %i", status);
+      DEBUG(LOG_KEY "ps_read_process failed: %i", status);
       continue;
     }
 
