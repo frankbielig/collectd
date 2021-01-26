@@ -14,9 +14,9 @@
 /* ************************************************************************** */
 
 typedef enum {
-  TARGET_LOCAL,
-  TARGET_LOCAL_USER,
-  TARGET_LOCAL_SYSTEM
+  TARGET_LOCAL = 0,
+  TARGET_LOCAL_USER = 1,
+  TARGET_LOCAL_SYSTEM = 2
 } sdbus_bind_t;
 
 /* ************************************************************************** */
@@ -66,7 +66,7 @@ derive_t strv_length(char *const *strv) {
 
 /* -------------------------------------------------------------------------- */
 static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type) {
-  int r;
+  int r = -1;
 
   *bus = NULL;
   switch (type) {
@@ -79,9 +79,12 @@ static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type) {
   case TARGET_LOCAL_SYSTEM:
     r = sd_bus_default_system(bus);
     break;
+  default:
+    ERROR(LOG_KEY "invalid bus type %d", type);
+    return -1;
   }
   if (r < 0) {
-    ERROR(LOG_KEY "failed to connect bus: %d", r);
+    ERROR(LOG_KEY "failed to connect bus %d with %d", type, r);
     return r;
   }
 
