@@ -1,5 +1,5 @@
 /**
- * collectd - src/processes.c
+ * collectd - src/processes2.c
  * Copyright (C) 2005       Lyonel Vincent
  * Copyright (C) 2006-2017  Florian octo Forster
  * Copyright (C) 2008       Oleg King
@@ -8,6 +8,7 @@
  * Copyright (C) 2009       Manuel Sanmartin
  * Copyright (C) 2010       Clément Stenac
  * Copyright (C) 2012       Cosmin Ioiart
+ * Copyright (C) 2020       Frank Bielig
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -34,6 +35,7 @@
  *   Cosmin Ioiart <cioiart at gmail.com>
  *   Pavel Rochnyack <pavel2000 at ngs.ru>
  *   Wilfried Goesgens <dothebart at citadel.org>
+ *   Frank Bielig <frank dot bielig at mbition.io>
  **/
 
 #include "collectd.h"
@@ -508,12 +510,10 @@ static int ps_list_match(const char *name, const char *cmdline,
   if (ps->user_re != NULL && username != NULL) {
     int status;
 
-    DEBUG(LOG_KEY "check against user %s", username);
     status = regexec(ps->user_re, username,
                      /* nmatch = */ 0,
                      /* pmatch = */ NULL,
                      /* eflags = */ 0);
-    DEBUG(LOG_KEY "  result: %d", status);
     if (status != 0)
       match_user = false;
   }
@@ -2937,7 +2937,7 @@ static int ps_read(void) {
 
     status = ps_read_process(pid, &pse, &state);
     if (status != 0) {
-      DEBUG(LOG_KEY "ps_read_process failed: %i", status);
+      DEBUG("ps_read_process failed: %i", status);
       continue;
     }
 
