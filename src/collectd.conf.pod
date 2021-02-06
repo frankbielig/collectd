@@ -12735,6 +12735,23 @@ Example:
    Satisfy "Any"
  </Match>
 
+=item B<last_value>
+
+Matches the actual value of data sources against the previous state.
+
+Available options:
+
+=over 4
+
+=item B<DiffAbs> I<Value>
+
+Sets the maximal difference between the previous value and the current one.
+
+=item B<DiffRel> I<Value>
+
+Sets the maximal relative difference determined as the quotient of the 
+absolute difference and the previous value
+
 =item B<empty_counter>
 
 Matches all values with one or more data sources of type B<COUNTER> and where

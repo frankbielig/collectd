@@ -680,6 +680,9 @@ Features
     - match_hashed
       Match values using a hash function of the hostname.
 
+    - match_last_value
+      Match the values with their previous state.
+
     - match_regex
       Match values by their identifier based on regular expressions.
 

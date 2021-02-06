@@ -1368,6 +1368,12 @@ match_value_la_SOURCES = src/match_value.c
 match_value_la_LDFLAGS = $(PLUGIN_LDFLAGS)
 endif
 
+if BUILD_PLUGIN_MATCH_LAST_VALUE
+pkglib_LTLIBRARIES += match_last_value.la
+match_last_value_la_SOURCES = src/match_last_value.c
+match_last_value_la_LDFLAGS = $(PLUGIN_LDFLAGS)
+endif
+
 if BUILD_PLUGIN_MBMON
 pkglib_LTLIBRARIES += mbmon.la
 mbmon_la_SOURCES = src/mbmon.c
