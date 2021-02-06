@@ -12752,6 +12752,8 @@ Sets the maximal difference between the previous value and the current one.
 Sets the maximal relative difference determined as the quotient of the 
 absolute difference and the previous value
 
+=back
+
 =item B<empty_counter>
 
 Matches all values with one or more data sources of type B<COUNTER> and where
