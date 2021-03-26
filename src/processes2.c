@@ -412,7 +412,7 @@ static procstat_t *ps_list_register(const char *name, const char *cmd_regexp,
   }
 
   if (user_regexp != NULL) {
-    DEBUG(LOG_KEY "ProcessMatch: adding \"%s\" as use criteria to process %s.",
+    DEBUG(LOG_KEY "ProcessMatch: adding \"%s\" as user criteria to process %s.",
           user_regexp, name);
     new->user_re = malloc(sizeof(*new->user_re));
     if (new->user_re == NULL) {
@@ -797,7 +797,7 @@ static int ps_config(oconfig_item_t *ci) {
         while ((pwd = getpwent()) != NULL) {
           snprintf(regex_buffer, USER_NAME_BUFFER_SIZE + 3, "^%s$",
                    pwd->pw_name);
-          ps = ps_list_register(pwd->pw_name, NULL, regex_buffer);
+          ps = ps_list_register(pwd->pw_name, ".*", regex_buffer);
 
           if (c->children_num != 0 && ps != NULL)
             ps_tune_instance(c, ps);
