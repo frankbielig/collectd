@@ -1893,7 +1893,7 @@ pkglib_LTLIBRARIES += sdbus.la
 sdbus_la_SOURCES = src/sdbus.c
 sdbus_la_CFLAGS = $(AM_CFLAGS) $(BUILD_WITH_LIBSYSTEMD_CFLAGS)
 sdbus_la_LDFLAGS = $(PLUGIN_LDFLAGS) $(BUILD_WITH_LIBSYSTEMD_LDFLAGS)
-sdbus_la_LIBADD = libformat_graphite.la libformat_json.la $(BUILD_WITH_LIBSYSTEMD_LIBS)
+sdbus_la_LIBADD = liblatency.la libformat_graphite.la libformat_json.la $(BUILD_WITH_LIBSYSTEMD_LIBS)
 
 test_plugin_sdbus_SOURCES = src/sdbus_test.c \
   src/daemon/configfile.c src/daemon/types_list.c
