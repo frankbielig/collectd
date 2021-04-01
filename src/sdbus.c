@@ -215,6 +215,20 @@ static char **sdbus_names(sd_bus *bus, bool activatable) {
 }
 
 /* ------------------------------------------------------------------------- */
+static const char *sdbus_error_message(const sd_bus_error *e, int error) {
+
+  if (e) {
+    if (sd_bus_error_has_name(e, SD_BUS_ERROR_ACCESS_DENIED))
+      return "Access denied";
+
+    if (e->message)
+      return e->message;
+  }
+
+  return strerror(error);
+}
+
+/* ------------------------------------------------------------------------- */
 static int sdbus_count_active(sd_bus *bus, derive_t *unique,
                               derive_t *acquired) {
   char **names = sdbus_names(bus, false);
@@ -382,7 +396,7 @@ static int sdbus_count(void) {
   derive_t unique;
   derive_t acquried;
   derive_t activatable;
-  return 0;
+
   if (bus_user != NULL) {
     if (sdbus_count_active(bus_user, &unique, &acquried))
       return -1;
@@ -435,8 +449,9 @@ static cdtime_t sdbus_call(const char *object, const char *interface,
   if (r >= 0) {
     latency = cdtime() - start;
   } else {
+
     ERROR(LOG_KEY "call of %s; %s, %s failed with %d (%s)", object, interface,
-          method, r, strerror(-r));
+          method, r, sdbus_error_message(&error, r));
   }
 
   sd_bus_error_free(&error);
