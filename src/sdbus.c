@@ -21,13 +21,19 @@ typedef enum {
   TARGET_LOCAL_SYSTEM = 2
 } sdbus_bind_t;
 
+/* ------------------------------------------------------------------------- */
+typedef struct sdbus_latency_s {
+
+  gauge_t value;
+  latency_counter_t *history;
+
+} sdbus_latency_t;
+
+/* ------------------------------------------------------------------------- */
 typedef struct sdbus_metric_s {
 
-  latency_counter_t *ping_local_latency_hist;
-  gauge_t ping_local_latency_value;
-
-  latency_counter_t *ping_peer_latency_hist;
-  gauge_t ping_peer_latency_value;
+  sdbus_latency_t local_latency;
+  sdbus_latency_t peer_latency;
 
 } sdbus_metric_t;
 
@@ -47,6 +53,8 @@ typedef struct sdbus_metric_s {
 #define PEER_INTERFACE "org.freedesktop.DBus.Peer"
 #define PEER_METHOD_PING "Ping"
 
+#define PLUGIN_KEY "sdbus"
+
 /* ************************************************************************* */
 /* global variables */
 /* ************************************************************************* */
@@ -64,14 +72,14 @@ static sdbus_metric_t *sdbus_metric = 0;
 /* helper functions */
 /* ************************************************************************* */
 
-/* ------------------------------------------------------------------------- */
 static sdbus_metric_t *sdbus_metric_create() {
   sdbus_metric_t *metric = calloc(1, sizeof(*metric));
   if (metric == NULL) {
     ERROR(LOG_KEY "calloc of mectric failed.");
     return NULL;
   }
-  metric->ping_local_latency_hist = latency_counter_create();
+  metric->local_latency.history = latency_counter_create();
+  metric->peer_latency.history = latency_counter_create();
 
   return metric;
 }
@@ -82,7 +90,8 @@ static void sdbus_metric_destroy(sdbus_metric_t **metric) {
     return;
   if (*metric == NULL)
     return;
-  latency_counter_destroy((*metric)->ping_local_latency_hist);
+  latency_counter_destroy((*metric)->local_latency.history);
+  latency_counter_destroy((*metric)->peer_latency.history);
 
   sfree(*metric);
 }
@@ -297,8 +306,8 @@ finish:
 
 static void sdbus_submit_count(const char *instance, derive_t unique,
                                derive_t acquired, derive_t activatable) {
-  DEBUG("%s: unique=%lu, acquired=%lu, activatable=%lu),", instance, unique,
-        acquired, activatable);
+  DEBUG(LOG_KEY "%s bus - unique=%lu, acquired=%lu, activatable=%lu),",
+        instance, unique, acquired, activatable);
 
   value_list_t vl = VALUE_LIST_INIT;
   value_t values[] = {
@@ -310,8 +319,8 @@ static void sdbus_submit_count(const char *instance, derive_t unique,
   vl.values = values;
   vl.values_len = STATIC_ARRAY_SIZE(values);
 
-  sstrncpy(vl.plugin, "sdbus", sizeof(vl.plugin));
-  sstrncpy(vl.type, "size", sizeof(vl.type));
+  sstrncpy(vl.plugin, PLUGIN_KEY, sizeof(vl.plugin));
+  sstrncpy(vl.type, "sdbus_count", sizeof(vl.type));
   sstrncpy(vl.type_instance, instance, sizeof(vl.type_instance));
 
   plugin_dispatch_values(&vl);
@@ -353,8 +362,8 @@ static void sdbus_latency_submit(const char *instance, gauge_t value,
   vl.values = values;
   vl.values_len = STATIC_ARRAY_SIZE(values);
 
-  sstrncpy(vl.plugin, "sdbus", sizeof(vl.plugin));
-  sstrncpy(vl.type, "latency", sizeof(vl.type));
+  sstrncpy(vl.plugin, PLUGIN_KEY, sizeof(vl.plugin));
+  sstrncpy(vl.type, "sdbus_latency", sizeof(vl.type));
   sstrncpy(vl.type_instance, instance, sizeof(vl.type_instance));
 
   plugin_dispatch_values(&vl);
@@ -386,47 +395,30 @@ static cdtime_t sdbus_call(const char *object, const char *interface,
 }
 
 /* ------------------------------------------------------------------------- */
-static void sdbus_local_ping(void) {
-
-  cdtime_t latency =
-      sdbus_call(SERVER_OBJECT, SERVER_INTERFACE, SERVER_METHOD_PING);
-
-  if (latency == ~0) {
-    return;
-  }
-
-  sdbus_metric->ping_local_latency_value = CDTIME_T_TO_US(latency);
-  latency_counter_add(sdbus_metric->ping_local_latency_hist, latency);
-  DEBUG(LOG_KEY "local latency %.0fms", sdbus_metric->ping_local_latency_value);
-
-  sdbus_latency_submit("local", sdbus_metric->ping_local_latency_value,
-                       sdbus_metric->ping_local_latency_hist);
-}
-
-/* ------------------------------------------------------------------------- */
-static void sdbus_peer_ping(void) {
-
-  cdtime_t latency =
-      sdbus_call(SERVER_OBJECT, PEER_INTERFACE, PEER_METHOD_PING);
+static void sdbus_latency(const char *object, const char *interface,
+                          const char *method, const char *key,
+                          sdbus_latency_t *metric) {
+  cdtime_t latency = sdbus_call(object, interface, method);
 
   if (latency == ~0) {
     return;
   }
 
-  sdbus_metric->ping_peer_latency_value = CDTIME_T_TO_US(latency);
-  latency_counter_add(sdbus_metric->ping_peer_latency_hist, latency);
-  DEBUG(LOG_KEY "peer latency %.0fms", sdbus_metric->ping_peer_latency_value);
+  metric->value = CDTIME_T_TO_US(latency);
+  latency_counter_add(metric->history, latency);
+  DEBUG(LOG_KEY "%s latency %.0fms", key, metric->value);
 
-  sdbus_latency_submit("peer", sdbus_metric->ping_peer_latency_value,
-                       sdbus_metric->ping_peer_latency_hist);
+  sdbus_latency_submit(key, metric->value, metric->history);
 }
 
 /* ------------------------------------------------------------------------- */
 static int sdbus_read(void) {
 
   sdbus_count();
-  sdbus_local_ping();
-  sdbus_peer_ping();
+  sdbus_latency(SERVER_OBJECT, SERVER_INTERFACE, SERVER_METHOD_PING, "local",
+                &sdbus_metric->local_latency);
+  sdbus_latency(SERVER_OBJECT, PEER_INTERFACE, PEER_METHOD_PING, "peer",
+                &sdbus_metric->peer_latency);
 
   return 0;
 }
@@ -495,8 +487,8 @@ static int sdbus_shutdown(void) {
 
 /* ------------------------------------------------------------------------- */
 void module_register(void) {
-  plugin_register_complex_config("sdbus", sdbus_config);
-  plugin_register_init("sdbus", sdbus_init);
-  plugin_register_read("sdbus", sdbus_read);
-  plugin_register_shutdown("sdbus", sdbus_shutdown);
+  plugin_register_complex_config(PLUGIN_KEY, sdbus_config);
+  plugin_register_init(PLUGIN_KEY, sdbus_init);
+  plugin_register_read(PLUGIN_KEY, sdbus_read);
+  plugin_register_shutdown(PLUGIN_KEY, sdbus_shutdown);
 }
