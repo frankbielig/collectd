@@ -32,10 +32,21 @@ typedef struct sdbus_latency_s {
 /* ------------------------------------------------------------------------- */
 typedef struct sdbus_metric_s {
 
-  sdbus_latency_t local_latency;
-  sdbus_latency_t peer_latency;
+  sdbus_latency_t user_local_latency;
+  sdbus_latency_t user_peer_latency;
+  sdbus_latency_t system_local_latency;
+  sdbus_latency_t system_peer_latency;
 
 } sdbus_metric_t;
+
+/* ------------------------------------------------------------------------- */
+typedef struct server_info_s {
+  sd_bus **bus;
+  sdbus_bind_t bus_type;
+  pthread_t thread;
+  bool running;
+  bool shutdown;
+} server_info_t;
 
 /* ************************************************************************* */
 /* constants */
@@ -62,9 +73,14 @@ typedef struct sdbus_metric_s {
 static sd_bus *bus_user = NULL;
 static sd_bus *bus_system = NULL;
 
-static pthread_t server_thread;
-static bool server_running = false;
-static bool server_shutdown = false;
+static server_info_t user_server = {.bus = &bus_user,
+                                    .bus_type = TARGET_LOCAL_USER,
+                                    .running = false,
+                                    .shutdown = false};
+static server_info_t system_server = {.bus = &bus_system,
+                                      .bus_type = TARGET_LOCAL_SYSTEM,
+                                      .running = false,
+                                      .shutdown = false};
 
 static sdbus_metric_t *sdbus_metric = 0;
 
@@ -78,8 +94,8 @@ static sdbus_metric_t *sdbus_metric_create() {
     ERROR(LOG_KEY "calloc of mectric failed.");
     return NULL;
   }
-  metric->local_latency.history = latency_counter_create();
-  metric->peer_latency.history = latency_counter_create();
+  metric->user_local_latency.history = latency_counter_create();
+  metric->user_peer_latency.history = latency_counter_create();
 
   return metric;
 }
@@ -90,8 +106,8 @@ static void sdbus_metric_destroy(sdbus_metric_t **metric) {
     return;
   if (*metric == NULL)
     return;
-  latency_counter_destroy((*metric)->local_latency.history);
-  latency_counter_destroy((*metric)->peer_latency.history);
+  latency_counter_destroy((*metric)->user_local_latency.history);
+  latency_counter_destroy((*metric)->user_peer_latency.history);
 
   sfree(*metric);
 }
@@ -256,48 +272,83 @@ static const sd_bus_vtable server_vtable[] = {
 static void *server_main(void *args) {
   sd_bus_slot *slot = NULL;
   sd_bus *bus = NULL;
+  server_info_t *info = (server_info_t *)args;
   int r;
 
-  if (sdbus_acquire(&bus, TARGET_LOCAL_USER) != 0) {
-    WARNING(LOG_KEY_SERVER "could not connect to system bus");
+  if (sdbus_acquire(&bus, info->bus_type) != 0) {
+    WARNING(LOG_KEY_SERVER "#%d could not connect to system bus",
+            info->bus_type);
     pthread_exit(NULL);
   }
 
   r = sd_bus_add_object_vtable(bus, &slot, SERVER_OBJECT, SERVER_INTERFACE,
                                server_vtable, NULL);
   if (r < 0) {
-    WARNING(LOG_KEY_SERVER "failed to add object: %s", strerror(-r));
+    WARNING(LOG_KEY_SERVER "#%d failed to add object: %s", info->bus_type,
+            strerror(-r));
     goto finish;
   }
 
   r = sd_bus_request_name(bus, SERVER_SERVICE, 0);
   if (r < 0) {
-    WARNING(LOG_KEY_SERVER "failed to acquire service name: %s", strerror(-r));
+    WARNING(LOG_KEY_SERVER "#%d failed to acquire service name: %s",
+            info->bus_type, strerror(-r));
     goto finish;
   }
 
-  while (!server_shutdown) {
-    DEBUG(LOG_KEY_SERVER "process");
+  info->running = true;
+  while (!info->shutdown) {
+    DEBUG(LOG_KEY_SERVER "#%d process", info->bus_type);
     r = sd_bus_process(bus, NULL);
     if (r < 0) {
-      WARNING(LOG_KEY_SERVER "failed to process bus: %s", strerror(-r));
+      WARNING(LOG_KEY_SERVER "#%d failed to process bus: %s", info->bus_type,
+              strerror(-r));
       goto finish;
     }
     if (r > 0)
       continue;
 
-    DEBUG(LOG_KEY_SERVER "wait");
+    DEBUG(LOG_KEY_SERVER "#%d wait", info->bus_type);
     r = sd_bus_wait(bus, (uint64_t)-1);
     if (r < 0) {
-      WARNING(LOG_KEY_SERVER "failed to wait on bus: %s", strerror(-r));
+      WARNING(LOG_KEY_SERVER "#%d failed to wait on bus: %s", info->bus_type,
+              strerror(-r));
       goto finish;
     }
   }
 finish:
-  WARNING(LOG_KEY_SERVER "finished");
+  WARNING(LOG_KEY_SERVER "#%d finished", info->bus_type);
   sd_bus_slot_unref(slot);
   sd_bus_unref(bus);
   return NULL;
+}
+
+/* ------------------------------------------------------------------------- */
+static void server_start(server_info_t *info) {
+
+  if (*info->bus && !info->running) {
+    DEBUG(LOG_KEY_SERVER "#%d create thread", info->bus_type);
+    int status;
+    status = pthread_create(&info->thread, NULL, server_main, info);
+    if (status != 0) {
+      ERROR(LOG_KEY_SERVER "#%d could not start thread", info->bus_type);
+      return;
+    }
+    DEBUG(LOG_KEY_SERVER "#%d running", info->bus_type);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+static void server_shutdown(server_info_t *info) {
+
+  if (info->running) {
+    DEBUG(LOG_KEY_SERVER "#%d start shutdown sequence", info->bus_type);
+    info->shutdown = true;
+    pthread_kill(info->thread, SIGTERM);
+    pthread_join(info->thread, NULL);
+    DEBUG(LOG_KEY_SERVER "#%d shutdown completed", info->bus_type);
+  }
+  info->running = false;
 }
 
 /* ************************************************************************* */
@@ -331,7 +382,7 @@ static int sdbus_count(void) {
   derive_t unique;
   derive_t acquried;
   derive_t activatable;
-
+  return 0;
   if (bus_user != NULL) {
     if (sdbus_count_active(bus_user, &unique, &acquried))
       return -1;
@@ -384,8 +435,8 @@ static cdtime_t sdbus_call(const char *object, const char *interface,
   if (r >= 0) {
     latency = cdtime() - start;
   } else {
-    ERROR(LOG_KEY "call of %s; %s, %s failed with %d", object, interface,
-          method, r);
+    ERROR(LOG_KEY "call of %s; %s, %s failed with %d (%s)", object, interface,
+          method, r, strerror(-r));
   }
 
   sd_bus_error_free(&error);
@@ -395,11 +446,13 @@ static cdtime_t sdbus_call(const char *object, const char *interface,
 }
 
 /* ------------------------------------------------------------------------- */
-static void sdbus_latency(const char *object, const char *interface,
-                          const char *method, const char *key,
-                          sdbus_latency_t *metric) {
-  cdtime_t latency = sdbus_call(object, interface, method);
+static void sdbus_latency(server_info_t *server_info, const char *object,
+                          const char *interface, const char *method,
+                          const char *key, sdbus_latency_t *metric) {
+  if (!server_info->running)
+    return;
 
+  cdtime_t latency = sdbus_call(object, interface, method);
   if (latency == ~0) {
     return;
   }
@@ -415,10 +468,16 @@ static void sdbus_latency(const char *object, const char *interface,
 static int sdbus_read(void) {
 
   sdbus_count();
-  sdbus_latency(SERVER_OBJECT, SERVER_INTERFACE, SERVER_METHOD_PING, "local",
-                &sdbus_metric->local_latency);
-  sdbus_latency(SERVER_OBJECT, PEER_INTERFACE, PEER_METHOD_PING, "peer",
-                &sdbus_metric->peer_latency);
+  sdbus_latency(&user_server, SERVER_OBJECT, SERVER_INTERFACE,
+                SERVER_METHOD_PING, "user-local",
+                &sdbus_metric->user_local_latency);
+  sdbus_latency(&user_server, SERVER_OBJECT, PEER_INTERFACE, PEER_METHOD_PING,
+                "user-peer", &sdbus_metric->user_peer_latency);
+  sdbus_latency(&system_server, SERVER_OBJECT, SERVER_INTERFACE,
+                SERVER_METHOD_PING, "system-local",
+                &sdbus_metric->system_local_latency);
+  sdbus_latency(&system_server, SERVER_OBJECT, PEER_INTERFACE, PEER_METHOD_PING,
+                "system-peer", &sdbus_metric->system_peer_latency);
 
   return 0;
 }
@@ -435,7 +494,6 @@ static int sdbus_config(oconfig_item_t *ci) {
 
 /* ------------------------------------------------------------------------- */
 static int sdbus_init(void) {
-
   sdbus_metric = sdbus_metric_create();
   if (!sdbus_metric)
     return -1;
@@ -447,17 +505,8 @@ static int sdbus_init(void) {
     WARNING(LOG_KEY "could not connect to system bus");
   }
 
-  if (!server_running) {
-    DEBUG(LOG_KEY_SERVER "create thread");
-    int status;
-    status = pthread_create(&server_thread, NULL, server_main, NULL);
-    if (status != 0) {
-      ERROR(LOG_KEY_SERVER "could not start thread");
-      return -1;
-    }
-    server_running = true;
-    DEBUG(LOG_KEY_SERVER "running");
-  }
+  server_start(&user_server);
+  server_start(&system_server);
 
   return 0;
 }
@@ -471,14 +520,8 @@ static int sdbus_shutdown(void) {
     return -1;
   }
 
-  if (server_running) {
-    DEBUG(LOG_KEY_SERVER "start shutdown sequence");
-    server_shutdown = true;
-    pthread_kill(server_thread, SIGTERM);
-    pthread_join(server_thread, NULL);
-    DEBUG(LOG_KEY_SERVER "shutdown completed");
-  }
-  server_running = false;
+  server_shutdown(&system_server);
+  server_shutdown(&user_server);
 
   sdbus_metric_destroy(&sdbus_metric);
 
