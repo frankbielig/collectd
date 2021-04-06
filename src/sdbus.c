@@ -227,7 +227,7 @@ static const char *sdbus_error_message(const sd_bus_error *e, int error) {
       return e->message;
   }
 
-  return strerror(error);
+  return strerror(abs(error));
 }
 
 /* ------------------------------------------------------------------------- */
@@ -451,8 +451,9 @@ static cdtime_t sdbus_call(const char *service, const char *object,
   if (r >= 0) {
     latency = cdtime() - start;
   } else {
-    ERROR(LOG_KEY "call of %s; %s, %s failed with %d (%s)", object, interface,
-          method, r, sdbus_error_message(&error, r));
+    ERROR(LOG_KEY "call of 'busctl call %s %s %s %s' failed with %d (%s)",
+          service, object, interface, method, r,
+          sdbus_error_message(&error, r));
   }
 
   sd_bus_error_free(&error);
