@@ -437,7 +437,7 @@ static void sdbus_latency_submit(const char *instance, gauge_t value,
 }
 
 /* ------------------------------------------------------------------------- */
-static cdtime_t sdbus_call(const char *service, const char *object,
+static cdtime_t sdbus_call(sd_bus *bus, const char *service, const char *object,
                            const char *interface, const char *method) {
 
   sd_bus_error error = SD_BUS_ERROR_NULL;
@@ -445,9 +445,16 @@ static cdtime_t sdbus_call(const char *service, const char *object,
   cdtime_t latency = ~0;
   int r;
 
+  if (bus == NULL) {
+    ERROR(LOG_KEY "call of 'busctl call %s %s %s %s' failed with invalid bus",
+          service, object, interface, method);
+    return 0;
+  }
+
+
   cdtime_t start = cdtime();
-  r = sd_bus_call_method(bus_user, service, object, interface, method, &error,
-                         &m, "");
+  r = sd_bus_call_method(bus, service, object, interface, method, &error, &m,
+                         "");
   if (r >= 0) {
     latency = cdtime() - start;
   } else {
@@ -470,7 +477,11 @@ static void sdbus_latency(server_info_t *server_info, const char *service,
   if (!server_info->running)
     return;
 
-  cdtime_t latency = sdbus_call(service, object, interface, method);
+  if (server_info->bus == NULL)
+    return;
+
+  cdtime_t latency =
+      sdbus_call(*server_info->bus, service, object, interface, method);
   if (latency == ~0) {
     return;
   }
