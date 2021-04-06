@@ -61,6 +61,8 @@ typedef struct server_info_s {
 #define SERVER_INTERFACE "org.collectd.SDBus"
 #define SERVER_METHOD_PING "Ping"
 
+#define PEER_SERVICE "org.freedesktop.DBus"
+#define PEER_OBJECT "/org/freedesktop/DBus"
 #define PEER_INTERFACE "org.freedesktop.DBus.Peer"
 #define PEER_METHOD_PING "Ping"
 
@@ -435,8 +437,8 @@ static void sdbus_latency_submit(const char *instance, gauge_t value,
 }
 
 /* ------------------------------------------------------------------------- */
-static cdtime_t sdbus_call(const char *object, const char *interface,
-                           const char *method) {
+static cdtime_t sdbus_call(const char *service, const char *object,
+                           const char *interface, const char *method) {
 
   sd_bus_error error = SD_BUS_ERROR_NULL;
   sd_bus_message *m = NULL;
@@ -444,12 +446,11 @@ static cdtime_t sdbus_call(const char *object, const char *interface,
   int r;
 
   cdtime_t start = cdtime();
-  r = sd_bus_call_method(bus_user, SERVER_SERVICE, object, interface, method,
-                         &error, &m, "");
+  r = sd_bus_call_method(bus_user, service, object, interface, method, &error,
+                         &m, "");
   if (r >= 0) {
     latency = cdtime() - start;
   } else {
-
     ERROR(LOG_KEY "call of %s; %s, %s failed with %d (%s)", object, interface,
           method, r, sdbus_error_message(&error, r));
   }
@@ -461,13 +462,14 @@ static cdtime_t sdbus_call(const char *object, const char *interface,
 }
 
 /* ------------------------------------------------------------------------- */
-static void sdbus_latency(server_info_t *server_info, const char *object,
-                          const char *interface, const char *method,
-                          const char *key, sdbus_latency_t *metric) {
+static void sdbus_latency(server_info_t *server_info, const char *service,
+                          const char *object, const char *interface,
+                          const char *method, const char *key,
+                          sdbus_latency_t *metric) {
   if (!server_info->running)
     return;
 
-  cdtime_t latency = sdbus_call(object, interface, method);
+  cdtime_t latency = sdbus_call(service, object, interface, method);
   if (latency == ~0) {
     return;
   }
@@ -483,16 +485,18 @@ static void sdbus_latency(server_info_t *server_info, const char *object,
 static int sdbus_read(void) {
 
   sdbus_count();
-  sdbus_latency(&user_server, SERVER_OBJECT, SERVER_INTERFACE,
+  sdbus_latency(&user_server, SERVER_SERVICE, SERVER_OBJECT, SERVER_INTERFACE,
                 SERVER_METHOD_PING, "user-local",
                 &sdbus_metric->user_local_latency);
-  sdbus_latency(&user_server, SERVER_OBJECT, PEER_INTERFACE, PEER_METHOD_PING,
-                "user-peer", &sdbus_metric->user_peer_latency);
-  sdbus_latency(&system_server, SERVER_OBJECT, SERVER_INTERFACE,
+  sdbus_latency(&user_server, PEER_SERVICE, PEER_OBJECT, PEER_INTERFACE,
+                PEER_METHOD_PING, "user-peer",
+                &sdbus_metric->user_peer_latency);
+  sdbus_latency(&system_server, SERVER_SERVICE, SERVER_OBJECT, SERVER_INTERFACE,
                 SERVER_METHOD_PING, "system-local",
                 &sdbus_metric->system_local_latency);
-  sdbus_latency(&system_server, SERVER_OBJECT, PEER_INTERFACE, PEER_METHOD_PING,
-                "system-peer", &sdbus_metric->system_peer_latency);
+  sdbus_latency(&system_server, PEER_SERVICE, PEER_OBJECT, PEER_INTERFACE,
+                PEER_METHOD_PING, "system-peer",
+                &sdbus_metric->system_peer_latency);
 
   return 0;
 }
