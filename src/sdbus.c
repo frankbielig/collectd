@@ -274,7 +274,7 @@ static int sdbus_count_activatable(sd_bus *bus, derive_t *activatable) {
 static int server_method_ping(sd_bus_message *m, void *userdata,
                               sd_bus_error *ret_error) {
 
-  INFO(LOG_KEY_SERVER "ping");
+  DEBUG(LOG_KEY_SERVER "ping");
   return sd_bus_reply_method_return(m, "");
 }
 
@@ -450,7 +450,6 @@ static cdtime_t sdbus_call(sd_bus *bus, const char *service, const char *object,
           service, object, interface, method);
     return 0;
   }
-
 
   cdtime_t start = cdtime();
   r = sd_bus_call_method(bus, service, object, interface, method, &error, &m,
