@@ -68,6 +68,8 @@ typedef struct server_info_s {
 
 #define PLUGIN_KEY "sdbus"
 
+#define COUNT_INTERVAL 60000 // milliseconds
+
 /* ************************************************************************* */
 /* global variables */
 /* ************************************************************************* */
@@ -85,6 +87,7 @@ static server_info_t system_server = {.bus = &bus_system,
                                       .shutdown = false};
 
 static sdbus_metric_t *sdbus_metric = 0;
+static cdtime_t sdbus_count_last_measurement = 0;
 
 /* ************************************************************************* */
 /* helper functions */
@@ -398,6 +401,11 @@ static int sdbus_count(void) {
   derive_t unique;
   derive_t acquried;
   derive_t activatable;
+
+  cdtime_t now = cdtime();
+  if (CDTIME_T_TO_MS(now - sdbus_count_last_measurement) < COUNT_INTERVAL)
+    return 1;
+  sdbus_count_last_measurement = now;
 
   if (bus_user != NULL) {
     if (sdbus_count_active(bus_user, &unique, &acquried))
