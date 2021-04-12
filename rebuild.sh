@@ -17,5 +17,6 @@ CFLAGS="-g -O0" \
   
   
 make -j 6
+make check
 make install
 

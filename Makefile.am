@@ -1903,6 +1903,7 @@ test_plugin_sdbus_LDADD = \
   liboconfig.la \
   libplugin_mock.la \
   libmetadata.la \
+	liblatency.la \
   $(BUILD_WITH_LIBSYSTEMD_LIBS)
 check_PROGRAMS += test_plugin_sdbus
 TESTS += test_plugin_sdbus

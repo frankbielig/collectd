@@ -15,11 +15,7 @@
 /* types */
 /* ************************************************************************* */
 
-typedef enum {
-  TARGET_LOCAL = 0,
-  TARGET_LOCAL_USER = 1,
-  TARGET_LOCAL_SYSTEM = 2
-} sdbus_bind_t;
+typedef enum { TARGET_LOCAL_USER = 1, TARGET_LOCAL_SYSTEM = 2 } sdbus_bind_t;
 
 /* ------------------------------------------------------------------------- */
 typedef struct sdbus_latency_s {
@@ -55,6 +51,7 @@ typedef struct server_info_s {
 #define LOG_KEY "sdbus: "
 #define LOG_KEY_NAMES LOG_KEY "sdbus_names - "
 #define LOG_KEY_SERVER LOG_KEY "server - "
+#define LOG_KEY_MONITOR LOG_KEY "monitor - "
 
 #define SERVER_SERVICE "org.collectd.SDBus"
 #define SERVER_OBJECT "/org/collectd/SDBus"
@@ -70,21 +67,39 @@ typedef struct server_info_s {
 
 #define COUNT_INTERVAL 60000 // milliseconds
 
+#define CHECK_ERROR(r, msg)                                                    \
+  if (r < 0) {                                                                 \
+    WARNING(LOG_KEY "%s: %s (%d)", msg, strerror(-r), r);                      \
+    return r;                                                                  \
+  }
+
 /* ************************************************************************* */
 /* global variables */
 /* ************************************************************************* */
 
 static sd_bus *bus_user = NULL;
 static sd_bus *bus_system = NULL;
+static sd_bus *bus_user_server = NULL;
+static sd_bus *bus_system_server = NULL;
+static sd_bus *bus_user_monitor = NULL;
+static sd_bus *bus_system_monitor = NULL;
 
-static server_info_t user_server = {.bus = &bus_user,
+static server_info_t user_server = {.bus = &bus_user_server,
                                     .bus_type = TARGET_LOCAL_USER,
                                     .running = false,
                                     .shutdown = false};
-static server_info_t system_server = {.bus = &bus_system,
+static server_info_t system_server = {.bus = &bus_system_server,
                                       .bus_type = TARGET_LOCAL_SYSTEM,
                                       .running = false,
                                       .shutdown = false};
+static server_info_t user_monitor = {.bus = &bus_user_monitor,
+                                     .bus_type = TARGET_LOCAL_USER,
+                                     .running = false,
+                                     .shutdown = false};
+static server_info_t system_monitor = {.bus = &bus_system_monitor,
+                                       .bus_type = TARGET_LOCAL_SYSTEM,
+                                       .running = false,
+                                       .shutdown = false};
 
 static sdbus_metric_t *sdbus_metric = 0;
 static cdtime_t sdbus_count_last_measurement = 0;
@@ -145,14 +160,12 @@ static derive_t strv_length(char *const *strv) {
 }
 
 /* ------------------------------------------------------------------------- */
-static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type) {
+/*
+static int sdbus_acquire_default(sd_bus **bus, sdbus_bind_t type) {
   int r = -1;
 
   *bus = NULL;
   switch (type) {
-  case TARGET_LOCAL:
-    r = sd_bus_default(bus);
-    break;
   case TARGET_LOCAL_USER:
     r = sd_bus_default_user(bus);
     break;
@@ -167,6 +180,54 @@ static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type) {
     ERROR(LOG_KEY "failed to connect bus %d with %d", type, r);
     return r;
   }
+
+  return 0;
+}
+*/
+/* ------------------------------------------------------------------------- */
+static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type, bool is_monitor) {
+  int r;
+  const char *addr = NULL;
+
+  r = sd_bus_new(bus);
+  CHECK_ERROR(r, LOG_KEY "failed to allocate bus");
+
+  if (is_monitor) {
+    r = sd_bus_set_monitor(*bus, true);
+    CHECK_ERROR(r, LOG_KEY "failed to set monitor mode");
+
+    r = sd_bus_negotiate_creds(*bus, true, _SD_BUS_CREDS_ALL);
+    CHECK_ERROR(r, LOG_KEY "failed to enable credentials");
+
+    r = sd_bus_negotiate_timestamp(*bus, true);
+    CHECK_ERROR(r, LOG_KEY "failed to enable timestamps");
+
+    r = sd_bus_negotiate_fds(*bus, true);
+    CHECK_ERROR(r, LOG_KEY "failed to enable fds");
+  }
+
+  r = sd_bus_set_bus_client(*bus, true);
+  CHECK_ERROR(r, LOG_KEY "failed to set bus client");
+
+  switch (type) {
+  case TARGET_LOCAL_USER:
+    addr = getenv("DBUS_SESSION_BUS_ADDRESS");
+    break;
+  case TARGET_LOCAL_SYSTEM:
+    addr = "unix:path=/run/dbus/system_bus_socket";
+    break;
+  default:
+    ERROR(LOG_KEY "invalid bus type %d", type);
+    return -1;
+  }
+  r = sd_bus_set_address(*bus, addr);
+  if (r < 0) {
+    WARNING(LOG_KEY "failed to set address to '%s': %s", addr, strerror(-r));
+    return r;
+  }
+
+  r = sd_bus_start(*bus);
+  CHECK_ERROR(r, LOG_KEY "failed to start bus");
 
   return 0;
 }
@@ -290,25 +351,18 @@ static const sd_bus_vtable server_vtable[] = {
 /* ------------------------------------------------------------------------- */
 static void *server_main(void *args) {
   sd_bus_slot *slot = NULL;
-  sd_bus *bus = NULL;
   server_info_t *info = (server_info_t *)args;
   int r;
 
-  if (sdbus_acquire(&bus, info->bus_type) != 0) {
-    WARNING(LOG_KEY_SERVER "#%d could not connect to system bus",
-            info->bus_type);
-    pthread_exit(NULL);
-  }
-
-  r = sd_bus_add_object_vtable(bus, &slot, SERVER_OBJECT, SERVER_INTERFACE,
-                               server_vtable, NULL);
+  r = sd_bus_add_object_vtable(*info->bus, &slot, SERVER_OBJECT,
+                               SERVER_INTERFACE, server_vtable, NULL);
   if (r < 0) {
     WARNING(LOG_KEY_SERVER "#%d failed to add object: %s", info->bus_type,
             strerror(-r));
     goto finish;
   }
 
-  r = sd_bus_request_name(bus, SERVER_SERVICE, 0);
+  r = sd_bus_request_name(*info->bus, SERVER_SERVICE, 0);
   if (r < 0) {
     WARNING(LOG_KEY_SERVER "#%d failed to acquire service name: %s",
             info->bus_type, strerror(-r));
@@ -318,7 +372,7 @@ static void *server_main(void *args) {
   info->running = true;
   while (!info->shutdown) {
     DEBUG(LOG_KEY_SERVER "#%d process", info->bus_type);
-    r = sd_bus_process(bus, NULL);
+    r = sd_bus_process(*info->bus, NULL);
     if (r < 0) {
       WARNING(LOG_KEY_SERVER "#%d failed to process bus: %s", info->bus_type,
               strerror(-r));
@@ -328,7 +382,7 @@ static void *server_main(void *args) {
       continue;
 
     DEBUG(LOG_KEY_SERVER "#%d wait", info->bus_type);
-    r = sd_bus_wait(bus, (uint64_t)-1);
+    r = sd_bus_wait(*info->bus, (uint64_t)1000000); // usec
     if (r < 0) {
       WARNING(LOG_KEY_SERVER "#%d failed to wait on bus: %s", info->bus_type,
               strerror(-r));
@@ -338,16 +392,15 @@ static void *server_main(void *args) {
 finish:
   WARNING(LOG_KEY_SERVER "#%d finished", info->bus_type);
   sd_bus_slot_unref(slot);
-  sd_bus_unref(bus);
   return NULL;
 }
 
 /* ------------------------------------------------------------------------- */
 static void server_start(server_info_t *info) {
+  int status;
 
   if (*info->bus && !info->running) {
     DEBUG(LOG_KEY_SERVER "#%d create thread", info->bus_type);
-    int status;
     status = pthread_create(&info->thread, NULL, server_main, info);
     if (status != 0) {
       ERROR(LOG_KEY_SERVER "#%d could not start thread", info->bus_type);
@@ -360,14 +413,52 @@ static void server_start(server_info_t *info) {
 /* ------------------------------------------------------------------------- */
 static void server_shutdown(server_info_t *info) {
 
-  if (info->running) {
-    DEBUG(LOG_KEY_SERVER "#%d start shutdown sequence", info->bus_type);
-    info->shutdown = true;
-    pthread_kill(info->thread, SIGTERM);
-    pthread_join(info->thread, NULL);
-    DEBUG(LOG_KEY_SERVER "#%d shutdown completed", info->bus_type);
-  }
+  DEBUG(LOG_KEY_SERVER "#%d start shutdown sequence", info->bus_type);
+  info->shutdown = true;
+  // pthread_kill(info->thread, SIGTERM);
+  pthread_join(info->thread, NULL);
   info->running = false;
+  DEBUG(LOG_KEY_SERVER "#%d shutdown completed", info->bus_type);
+}
+
+/* ************************************************************************* */
+/* sdbus server */
+/* ************************************************************************* */
+
+/* ------------------------------------------------------------------------- */
+static void *monitor_main(void *args) {
+  server_info_t *info = (server_info_t *)args;
+  info->running = true;
+
+  DEBUG(LOG_KEY_MONITOR "#%d: monitor main", info->bus_type);
+
+  return NULL;
+}
+
+/* ------------------------------------------------------------------------- */
+static void monitor_start(server_info_t *info) {
+  int status;
+
+  if (*info->bus && !info->running) {
+    DEBUG(LOG_KEY_MONITOR "#%d create thread", info->bus_type);
+    status = pthread_create(&info->thread, NULL, monitor_main, info);
+    if (status != 0) {
+      ERROR(LOG_KEY_MONITOR "#%d could not start thread", info->bus_type);
+      return;
+    }
+    DEBUG(LOG_KEY_MONITOR "#%d running", info->bus_type);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+static void monitor_shutdown(server_info_t *info) {
+
+  DEBUG(LOG_KEY_MONITOR "#%d start shutdown sequence", info->bus_type);
+  info->shutdown = true;
+  // pthread_kill(info->thread, SIGTERM);
+  pthread_join(info->thread, NULL);
+  info->running = false;
+  DEBUG(LOG_KEY_MONITOR "#%d shutdown completed", info->bus_type);
 }
 
 /* ************************************************************************* */
@@ -453,6 +544,9 @@ static cdtime_t sdbus_call(sd_bus *bus, const char *service, const char *object,
   cdtime_t latency = ~0;
   int r;
 
+  DEBUG(LOG_KEY "call of 'busctl call %s %s %s %s'", service, object, interface,
+        method);
+
   if (bus == NULL) {
     ERROR(LOG_KEY "call of 'busctl call %s %s %s %s' failed with invalid bus",
           service, object, interface, method);
@@ -477,18 +571,20 @@ static cdtime_t sdbus_call(sd_bus *bus, const char *service, const char *object,
 }
 
 /* ------------------------------------------------------------------------- */
-static void sdbus_latency(server_info_t *server_info, const char *service,
+static void sdbus_latency(server_info_t *info, const char *service,
                           const char *object, const char *interface,
                           const char *method, const char *key,
                           sdbus_latency_t *metric) {
-  if (!server_info->running)
+  DEBUG(LOG_KEY "#%d latency begin (running=%d)", info->bus_type,
+        info->running);
+  if (!info->running)
     return;
 
-  if (server_info->bus == NULL)
+  DEBUG(LOG_KEY "latency running");
+  if (info->bus == NULL)
     return;
 
-  cdtime_t latency =
-      sdbus_call(*server_info->bus, service, object, interface, method);
+  cdtime_t latency = sdbus_call(*info->bus, service, object, interface, method);
   if (latency == ~0) {
     return;
   }
@@ -536,32 +632,53 @@ static int sdbus_init(void) {
   if (!sdbus_metric)
     return -1;
 
-  if (sdbus_acquire(&bus_user, TARGET_LOCAL_USER) != 0) {
+  DEBUG(LOG_KEY "initialize user bus");
+  if (sdbus_acquire(&bus_user, TARGET_LOCAL_USER, false) == 0) {
+    DEBUG(LOG_KEY "initialize user server bus");
+    if (sdbus_acquire(&bus_user_server, TARGET_LOCAL_USER, true) != 0)
+      WARNING(LOG_KEY "could not connect to user server bus");
+    DEBUG(LOG_KEY "initialize user monitor bus");
+    if (sdbus_acquire(&bus_user_monitor, TARGET_LOCAL_USER, true) != 0)
+      WARNING(LOG_KEY "could not connect to user monitor bus");
+  } else {
     WARNING(LOG_KEY "could not connect to user bus");
   }
-  if (sdbus_acquire(&bus_system, TARGET_LOCAL_SYSTEM) != 0) {
+
+  DEBUG(LOG_KEY "initialize system bus");
+  if (sdbus_acquire(&bus_system, TARGET_LOCAL_SYSTEM, false) == 0) {
+    DEBUG(LOG_KEY "initialize system server bus");
+    if (sdbus_acquire(&bus_system_server, TARGET_LOCAL_SYSTEM, true) == 0)
+      WARNING(LOG_KEY "enabling system server failed");
+    DEBUG(LOG_KEY "initialize system monitor bus");
+    if (sdbus_acquire(&bus_system_monitor, TARGET_LOCAL_SYSTEM, true) == 0)
+      WARNING(LOG_KEY "enabling system monitor failed");
+  } else {
     WARNING(LOG_KEY "could not connect to system bus");
   }
 
   server_start(&user_server);
   server_start(&system_server);
+  monitor_start(&system_monitor);
+  monitor_start(&user_monitor);
 
   return 0;
 }
 
 /* ------------------------------------------------------------------------- */
 static int sdbus_shutdown(void) {
-  if (bus_system != NULL && sdbus_close(&bus_system) != 0) {
-    return -1;
-  }
-  if (bus_user != NULL && sdbus_close(&bus_user) != 0) {
-    return -1;
-  }
-
+  monitor_shutdown(&system_monitor);
+  monitor_shutdown(&user_monitor);
   server_shutdown(&system_server);
   server_shutdown(&user_server);
 
   sdbus_metric_destroy(&sdbus_metric);
+
+  sdbus_close(&bus_system_monitor);
+  sdbus_close(&bus_user_monitor);
+  sdbus_close(&bus_system_server);
+  sdbus_close(&bus_user_server);
+  sdbus_close(&bus_system);
+  sdbus_close(&bus_user);
 
   return 0;
 }

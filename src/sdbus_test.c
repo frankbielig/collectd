@@ -21,7 +21,7 @@ static int teardown(void) {
 
 static int setup(sdbus_bind_t type) {
   teardown();
-  return sdbus_acquire(&bus, type);
+  return sdbus_acquire(&bus, type, false);
 }
 
 /* ************************************************************************** */
@@ -30,7 +30,6 @@ static int setup(sdbus_bind_t type) {
 
 /* -------------------------------------------------------------------------- */
 DEF_TEST(connect) {
-
   CHECK_ZERO(setup(TARGET_LOCAL_USER));
   CHECK_ZERO(setup(TARGET_LOCAL_SYSTEM));
 
@@ -71,5 +70,6 @@ int main(void) {
   RUN_TEST(search);
   RUN_TEST(read);
 
+  printf("failures: %d", fail_count__);
   END_TEST;
 }
