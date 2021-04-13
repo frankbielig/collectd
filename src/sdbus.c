@@ -58,10 +58,14 @@ typedef struct server_info_s {
 #define SERVER_INTERFACE "org.collectd.SDBus"
 #define SERVER_METHOD_PING "Ping"
 
-#define PEER_SERVICE "org.freedesktop.DBus"
-#define PEER_OBJECT "/org/freedesktop/DBus"
+#define DBUS_SERVICE "org.freedesktop.DBus"
+#define DBUS_OBJECT "/org/freedesktop/DBus"
+
 #define PEER_INTERFACE "org.freedesktop.DBus.Peer"
 #define PEER_METHOD_PING "Ping"
+
+#define MONIT_SERVICE "org.freedesktop.DBus.Monitoring"
+#define MONIT_METHOD_BECOME "BecomeMonitor"
 
 #define PLUGIN_KEY "sdbus"
 
@@ -331,6 +335,41 @@ static int sdbus_count_activatable(sd_bus *bus, derive_t *activatable) {
   return 0;
 }
 
+/* ------------------------------------------------------------------------- */
+static cdtime_t sdbus_call(sd_bus *bus, const char *service, const char *object,
+                           const char *interface, const char *method) {
+
+  sd_bus_error error = SD_BUS_ERROR_NULL;
+  sd_bus_message *m = NULL;
+  cdtime_t latency = ~0;
+  int r;
+
+  DEBUG(LOG_KEY "call of 'busctl call %s %s %s %s'", service, object, interface,
+        method);
+
+  if (bus == NULL) {
+    ERROR(LOG_KEY "call of 'busctl call %s %s %s %s' failed with invalid bus",
+          service, object, interface, method);
+    return 0;
+  }
+
+  cdtime_t start = cdtime();
+  r = sd_bus_call_method(bus, service, object, interface, method, &error, &m,
+                         "");
+  if (r >= 0) {
+    latency = cdtime() - start;
+  } else {
+    ERROR(LOG_KEY "call of 'busctl call %s %s %s %s' failed with %d (%s)",
+          service, object, interface, method, r,
+          sdbus_error_message(&error, r));
+  }
+
+  sd_bus_error_free(&error);
+  sd_bus_message_unref(m);
+
+  return latency;
+}
+
 /* ************************************************************************* */
 /* sdbus server */
 /* ************************************************************************* */
@@ -427,11 +466,107 @@ static void server_shutdown(server_info_t *info) {
 
 /* ------------------------------------------------------------------------- */
 static void *monitor_main(void *args) {
+  int r;
+  sd_bus_error error = SD_BUS_ERROR_NULL;
+  sd_bus_message *init_message = NULL;
+  uint32_t flags = 0;
+  const char *unique_name = NULL;
+
   server_info_t *info = (server_info_t *)args;
   info->running = true;
 
-  DEBUG(LOG_KEY_MONITOR "#%d: monitor main", info->bus_type);
+  DEBUG(LOG_KEY_MONITOR "#%d monitor main", info->bus_type);
 
+  r = sd_bus_message_new_method_call(*info->bus, &init_message, DBUS_SERVICE,
+                                     DBUS_OBJECT, MONIT_SERVICE,
+                                     MONIT_METHOD_BECOME);
+  if (r < 0) {
+    WARNING(LOG_KEY_MONITOR "#%d failed to create message: %s", info->bus_type,
+            strerror(-r));
+    goto finish;
+  }
+  r = sd_bus_message_open_container(init_message, 'a', "s");
+  if (r < 0) {
+    WARNING(LOG_KEY_MONITOR "#%d failed to open container: %s", info->bus_type,
+            strerror(-r));
+    goto finish;
+  }
+  r = sd_bus_message_close_container(init_message);
+  if (r < 0) {
+    WARNING(LOG_KEY_MONITOR "#%d failed to close container: %s", info->bus_type,
+            strerror(-r));
+    goto finish;
+  }
+  r = sd_bus_message_append_basic(init_message, 'u', &flags);
+  if (r < 0) {
+    WARNING(LOG_KEY_MONITOR "#%d failed to append flags: %s", info->bus_type,
+            strerror(-r));
+    goto finish;
+  }
+  r = sd_bus_call(*info->bus, init_message, 1000000, &error, NULL);
+  if (r < 0) {
+    ERROR(LOG_KEY_MONITOR
+          "#%d call of 'busctl call %s %s %s %s' failed with %d (%s)",
+          info->bus_type, DBUS_SERVICE, DBUS_OBJECT, MONIT_SERVICE,
+          MONIT_SERVICE, r, sdbus_error_message(&error, r));
+    goto finish;
+  }
+
+  r = sd_bus_get_unique_name(*info->bus, &unique_name);
+  if (r < 0) {
+    WARNING(LOG_KEY_MONITOR "#%d failed to get unique name: %s", info->bus_type,
+            strerror(-r));
+    goto finish;
+  }
+
+  DEBUG(LOG_KEY_MONITOR "#%d monitoring on bus %s activated", info->bus_type,
+        unique_name);
+
+  info->running = true;
+  while (!info->shutdown) {
+    sd_bus_message *m = NULL;
+
+    DEBUG(LOG_KEY_MONITOR "#%d process", info->bus_type);
+
+    r = sd_bus_process(*info->bus, &m);
+    if (r < 0) {
+      WARNING(LOG_KEY_MONITOR "#%d failed to process bus: %s", info->bus_type,
+              strerror(-r));
+      goto finish;
+    }
+
+    if (m) {
+      DEBUG(LOG_KEY_MONITOR "#%d received message from %s: %s %s %s %s (%s)",
+            info->bus_type, sd_bus_message_get_sender(m),
+            sd_bus_message_get_destination(m), sd_bus_message_get_path(m),
+            sd_bus_message_get_interface(m), sd_bus_message_get_member(m),
+            sd_bus_message_get_signature(m, 1));
+
+      if (sd_bus_message_is_signal(m, "org.freedesktop.DBus.Local",
+                                   "Disconnected") > 0) {
+        INFO(LOG_KEY_MONITOR "#%d connection terminated, exiting.",
+             info->bus_type);
+        goto finish;
+      }
+      sd_bus_message_unref(m);
+      continue;
+    }
+
+    if (r > 0)
+      continue;
+
+    DEBUG(LOG_KEY_MONITOR "#%d wait", info->bus_type);
+    r = sd_bus_wait(*info->bus, (uint64_t)1000000); // usec
+    if (r < 0) {
+      WARNING(LOG_KEY_MONITOR "#%d failed to wait on bus: %s", info->bus_type,
+              strerror(-r));
+      goto finish;
+    }
+  }
+
+finish:
+  sd_bus_message_unref(init_message);
+  sd_bus_error_free(&error);
   return NULL;
 }
 
@@ -536,41 +671,6 @@ static void sdbus_latency_submit(const char *instance, gauge_t value,
 }
 
 /* ------------------------------------------------------------------------- */
-static cdtime_t sdbus_call(sd_bus *bus, const char *service, const char *object,
-                           const char *interface, const char *method) {
-
-  sd_bus_error error = SD_BUS_ERROR_NULL;
-  sd_bus_message *m = NULL;
-  cdtime_t latency = ~0;
-  int r;
-
-  DEBUG(LOG_KEY "call of 'busctl call %s %s %s %s'", service, object, interface,
-        method);
-
-  if (bus == NULL) {
-    ERROR(LOG_KEY "call of 'busctl call %s %s %s %s' failed with invalid bus",
-          service, object, interface, method);
-    return 0;
-  }
-
-  cdtime_t start = cdtime();
-  r = sd_bus_call_method(bus, service, object, interface, method, &error, &m,
-                         "");
-  if (r >= 0) {
-    latency = cdtime() - start;
-  } else {
-    ERROR(LOG_KEY "call of 'busctl call %s %s %s %s' failed with %d (%s)",
-          service, object, interface, method, r,
-          sdbus_error_message(&error, r));
-  }
-
-  sd_bus_error_free(&error);
-  sd_bus_message_unref(m);
-
-  return latency;
-}
-
-/* ------------------------------------------------------------------------- */
 static void sdbus_latency(server_info_t *info, const char *service,
                           const char *object, const char *interface,
                           const char *method, const char *key,
@@ -603,13 +703,13 @@ static int sdbus_read(void) {
   sdbus_latency(&user_server, SERVER_SERVICE, SERVER_OBJECT, SERVER_INTERFACE,
                 SERVER_METHOD_PING, "user-local",
                 &sdbus_metric->user_local_latency);
-  sdbus_latency(&user_server, PEER_SERVICE, PEER_OBJECT, PEER_INTERFACE,
+  sdbus_latency(&user_server, DBUS_SERVICE, DBUS_OBJECT, PEER_INTERFACE,
                 PEER_METHOD_PING, "user-peer",
                 &sdbus_metric->user_peer_latency);
   sdbus_latency(&system_server, SERVER_SERVICE, SERVER_OBJECT, SERVER_INTERFACE,
                 SERVER_METHOD_PING, "system-local",
                 &sdbus_metric->system_local_latency);
-  sdbus_latency(&system_server, PEER_SERVICE, PEER_OBJECT, PEER_INTERFACE,
+  sdbus_latency(&system_server, DBUS_SERVICE, DBUS_OBJECT, PEER_INTERFACE,
                 PEER_METHOD_PING, "system-peer",
                 &sdbus_metric->system_peer_latency);
 
