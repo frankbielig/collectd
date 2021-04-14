@@ -477,7 +477,7 @@ static void *monitor_main(void *args) {
   sd_bus_message *init_message = NULL;
   uint32_t flags = 0;
   const char *unique_name = NULL;
-  derive_t *counter;
+  derive_t *counter = NULL;
 
   server_info_t *info = (server_info_t *)args;
   info->running = true;
@@ -490,6 +490,9 @@ static void *monitor_main(void *args) {
   case TARGET_LOCAL_SYSTEM:
     counter = &sdbus_metric->system_messages;
     break;
+  default:
+    ERROR(LOG_KEY_MONITOR "#%d invalid bus type", info->bus_type);
+    return NULL;
   }
 
   r = sd_bus_message_new_method_call(*info->bus, &init_message, DBUS_SERVICE,
