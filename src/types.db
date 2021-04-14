@@ -375,3 +375,4 @@ mysql_threads           running:GAUGE:0:U, connected:GAUGE:0:U, cached:GAUGE:0:U
 #
 sdbus_count             unique:GAUGE:0:U, acquired:GAUGE:0:U, activatable:GAUGE:0:U
 sdbus_latency           value:GAUGE:0:U
+sdbus_messages          value:DERIVE:0:U

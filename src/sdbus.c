@@ -33,6 +33,8 @@ typedef struct sdbus_metric_s {
   sdbus_latency_t system_local_latency;
   sdbus_latency_t system_peer_latency;
 
+  derive_t user_messages;
+  derive_t system_messages;
 } sdbus_metric_t;
 
 /* ------------------------------------------------------------------------- */
@@ -120,6 +122,8 @@ static sdbus_metric_t *sdbus_metric_create() {
   }
   metric->user_local_latency.history = latency_counter_create();
   metric->user_peer_latency.history = latency_counter_create();
+  metric->system_local_latency.history = latency_counter_create();
+  metric->system_peer_latency.history = latency_counter_create();
 
   return metric;
 }
@@ -130,6 +134,8 @@ static void sdbus_metric_destroy(sdbus_metric_t **metric) {
     return;
   if (*metric == NULL)
     return;
+  latency_counter_destroy((*metric)->system_local_latency.history);
+  latency_counter_destroy((*metric)->system_peer_latency.history);
   latency_counter_destroy((*metric)->user_local_latency.history);
   latency_counter_destroy((*metric)->user_peer_latency.history);
 
@@ -471,11 +477,20 @@ static void *monitor_main(void *args) {
   sd_bus_message *init_message = NULL;
   uint32_t flags = 0;
   const char *unique_name = NULL;
+  derive_t *counter;
 
   server_info_t *info = (server_info_t *)args;
   info->running = true;
 
   DEBUG(LOG_KEY_MONITOR "#%d monitor main", info->bus_type);
+  switch (info->bus_type) {
+  case TARGET_LOCAL_USER:
+    counter = &sdbus_metric->user_messages;
+    break;
+  case TARGET_LOCAL_SYSTEM:
+    counter = &sdbus_metric->system_messages;
+    break;
+  }
 
   r = sd_bus_message_new_method_call(*info->bus, &init_message, DBUS_SERVICE,
                                      DBUS_OBJECT, MONIT_SERVICE,
@@ -542,6 +557,8 @@ static void *monitor_main(void *args) {
             sd_bus_message_get_interface(m), sd_bus_message_get_member(m),
             sd_bus_message_get_signature(m, 1));
 
+      ++*counter;
+
       if (sd_bus_message_is_signal(m, "org.freedesktop.DBus.Local",
                                    "Disconnected") > 0) {
         INFO(LOG_KEY_MONITOR "#%d connection terminated, exiting.",
@@ -594,6 +611,23 @@ static void monitor_shutdown(server_info_t *info) {
   pthread_join(info->thread, NULL);
   info->running = false;
   DEBUG(LOG_KEY_MONITOR "#%d shutdown completed", info->bus_type);
+}
+
+/* ------------------------------------------------------------------------- */
+static void monitor_submit(const char *instance, derive_t value) {
+  value_list_t vl = VALUE_LIST_INIT;
+  value_t values[] = {
+      {.derive = value},
+  };
+
+  vl.values = values;
+  vl.values_len = STATIC_ARRAY_SIZE(values);
+
+  sstrncpy(vl.plugin, PLUGIN_KEY, sizeof(vl.plugin));
+  sstrncpy(vl.type, "sdbus_messages", sizeof(vl.type));
+  sstrncpy(vl.type_instance, instance, sizeof(vl.type_instance));
+
+  plugin_dispatch_values(&vl);
 }
 
 /* ************************************************************************* */
@@ -712,6 +746,9 @@ static int sdbus_read(void) {
   sdbus_latency(&system_server, DBUS_SERVICE, DBUS_OBJECT, PEER_INTERFACE,
                 PEER_METHOD_PING, "system-peer",
                 &sdbus_metric->system_peer_latency);
+
+  monitor_submit("user", sdbus_metric->user_messages);
+  monitor_submit("system", sdbus_metric->system_messages);
 
   return 0;
 }
