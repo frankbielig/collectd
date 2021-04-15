@@ -90,7 +90,7 @@ typedef struct server_info_s {
 #define CHECK_ERROR(r, msg)                                                    \
   if (r < 0) {                                                                 \
     WARNING(LOG_KEY "%s: %s (%d)", msg, strerror(-r), r);                      \
-    return r;                                                                  \
+    goto error;                                                                \
   }
 
 /* ************************************************************************* */
@@ -216,6 +216,22 @@ static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type, bool is_monitor) {
   int r;
   const char *addr = NULL;
 
+  switch (type) {
+  case TARGET_LOCAL_USER:
+    addr = getenv("DBUS_SESSION_BUS_ADDRESS");
+    break;
+  case TARGET_LOCAL_SYSTEM:
+    addr = "unix:path=/run/dbus/system_bus_socket";
+    break;
+  default:
+    ERROR(LOG_KEY "invalid bus type %d", type);
+    return -1;
+  }
+  if (!addr) {
+    ERROR(LOG_KEY "no address found for bus %d", type);
+    return -1;
+  }
+
   r = sd_bus_new(bus);
   CHECK_ERROR(r, LOG_KEY "failed to allocate bus");
 
@@ -236,17 +252,6 @@ static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type, bool is_monitor) {
   r = sd_bus_set_bus_client(*bus, true);
   CHECK_ERROR(r, LOG_KEY "failed to set bus client");
 
-  switch (type) {
-  case TARGET_LOCAL_USER:
-    addr = getenv("DBUS_SESSION_BUS_ADDRESS");
-    break;
-  case TARGET_LOCAL_SYSTEM:
-    addr = "unix:path=/run/dbus/system_bus_socket";
-    break;
-  default:
-    ERROR(LOG_KEY "invalid bus type %d", type);
-    return -1;
-  }
   r = sd_bus_set_address(*bus, addr);
   if (r < 0) {
     WARNING(LOG_KEY "failed to set address to '%s': %s", addr, strerror(-r));
@@ -257,6 +262,13 @@ static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type, bool is_monitor) {
   CHECK_ERROR(r, LOG_KEY "failed to start bus");
 
   return 0;
+
+error:
+  if (*bus) {
+    sd_bus_unrefp(bus);
+    *bus = NULL;
+  }
+  return r;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -500,7 +512,7 @@ static void *monitor_main(void *args) {
 
   server_info_t *info = (server_info_t *)args;
 
-  DEBUG(LOG_KEY_MONITOR "#%d monitor main", info->bus_type);
+  INFO(LOG_KEY_MONITOR "#%d monitor main", info->bus_type);
   switch (info->bus_type) {
   case TARGET_LOCAL_USER:
     counter = &sdbus_metric->user_messages;
@@ -555,8 +567,8 @@ static void *monitor_main(void *args) {
     goto finish;
   }
 
-  DEBUG(LOG_KEY_MONITOR "#%d monitoring on bus %s activated", info->bus_type,
-        unique_name);
+  INFO(LOG_KEY_MONITOR "#%d monitoring on bus %s activated", info->bus_type,
+       unique_name);
 
   info->running = true;
   while (!info->shutdown) {
@@ -574,12 +586,11 @@ static void *monitor_main(void *args) {
     if (m) {
       ++*counter;
 
-      DEBUG(LOG_KEY_MONITOR
-            "#%d received message %lu from %s: %s %s %s %s (%s)",
-            info->bus_type, *counter, sd_bus_message_get_sender(m),
-            sd_bus_message_get_destination(m), sd_bus_message_get_path(m),
-            sd_bus_message_get_interface(m), sd_bus_message_get_member(m),
-            sd_bus_message_get_signature(m, 1));
+      INFO(LOG_KEY_MONITOR "#%d received message %lu from %s: %s %s %s %s (%s)",
+           info->bus_type, *counter, sd_bus_message_get_sender(m),
+           sd_bus_message_get_destination(m), sd_bus_message_get_path(m),
+           sd_bus_message_get_interface(m), sd_bus_message_get_member(m),
+           sd_bus_message_get_signature(m, 1));
 
       if (sd_bus_message_is_signal(m, "org.freedesktop.DBus.Local",
                                    "Disconnected") > 0) {
@@ -614,13 +625,13 @@ static void monitor_start(server_info_t *info) {
   int status;
 
   if (*info->bus && !info->running) {
-    DEBUG(LOG_KEY_MONITOR "#%d create thread", info->bus_type);
+    INFO(LOG_KEY_MONITOR "#%d create thread", info->bus_type);
     status = pthread_create(&info->thread, NULL, monitor_main, info);
     if (status != 0) {
       ERROR(LOG_KEY_MONITOR "#%d could not start thread", info->bus_type);
       return;
     }
-    DEBUG(LOG_KEY_MONITOR "#%d running", info->bus_type);
+    INFO(LOG_KEY_MONITOR "#%d running", info->bus_type);
   }
 }
 
