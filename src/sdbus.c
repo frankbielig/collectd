@@ -38,6 +38,16 @@ typedef struct sdbus_metric_s {
 } sdbus_metric_t;
 
 /* ------------------------------------------------------------------------- */
+typedef struct client_latency_info_s {
+  const char *name;
+  sd_bus **bus;
+  const char *destination;
+  const char *path;
+  const char *interface;
+  const char *member;
+} client_latency_info_t;
+
+/* ------------------------------------------------------------------------- */
 typedef struct server_info_s {
   sd_bus **bus;
   sdbus_bind_t bus_type;
@@ -50,18 +60,22 @@ typedef struct server_info_s {
 /* constants */
 /* ************************************************************************* */
 
+#define ENABLE_COUNT 0
+#define ENABLE_LATENCY 1
+#define ENABLE_MONITOR 1
+
 #define LOG_KEY "sdbus: "
 #define LOG_KEY_NAMES LOG_KEY "sdbus_names - "
 #define LOG_KEY_SERVER LOG_KEY "server - "
 #define LOG_KEY_MONITOR LOG_KEY "monitor - "
 
-#define SERVER_SERVICE "org.collectd.SDBus"
-#define SERVER_OBJECT "/org/collectd/SDBus"
+#define SERVER_DESTINATION "org.collectd.SDBus"
+#define SERVER_MEMBER "/org/collectd/SDBus"
 #define SERVER_INTERFACE "org.collectd.SDBus"
-#define SERVER_METHOD_PING "Ping"
+#define SERVER_METHOD_PING "LocalPing"
 
-#define DBUS_SERVICE "org.freedesktop.DBus"
-#define DBUS_OBJECT "/org/freedesktop/DBus"
+#define DBUS_DESTINATION "org.freedesktop.DBus"
+#define DBUS_MEMBER "/org/freedesktop/DBus"
 
 #define PEER_INTERFACE "org.freedesktop.DBus.Peer"
 #define PEER_METHOD_PING "Ping"
@@ -106,6 +120,34 @@ static server_info_t system_monitor = {.bus = &bus_system_monitor,
                                        .bus_type = TARGET_LOCAL_SYSTEM,
                                        .running = false,
                                        .shutdown = false};
+
+static client_latency_info_t user_local_ping = {.name = "user-local",
+                                                .bus = &bus_user,
+                                                .destination =
+                                                    SERVER_DESTINATION,
+                                                .member = SERVER_MEMBER,
+                                                .interface = SERVER_INTERFACE,
+                                                .path = SERVER_METHOD_PING};
+static client_latency_info_t user_peer_ping = {.name = "user-peer",
+                                               .bus = &bus_user,
+                                               .destination = DBUS_DESTINATION,
+                                               .member = DBUS_MEMBER,
+                                               .interface = PEER_INTERFACE,
+                                               .path = PEER_METHOD_PING};
+static client_latency_info_t system_local_ping = {.name = "system-local",
+                                                  .bus = &bus_system,
+                                                  .destination =
+                                                      SERVER_DESTINATION,
+                                                  .member = SERVER_MEMBER,
+                                                  .interface = SERVER_INTERFACE,
+                                                  .path = SERVER_METHOD_PING};
+static client_latency_info_t system_peer_ping = {.name = "system-peer",
+                                                 .bus = &bus_system,
+                                                 .destination =
+                                                     DBUS_DESTINATION,
+                                                 .member = DBUS_MEMBER,
+                                                 .interface = PEER_INTERFACE,
+                                                 .path = PEER_METHOD_PING};
 
 static sdbus_metric_t *sdbus_metric = 0;
 static cdtime_t sdbus_count_last_measurement = 0;
@@ -169,31 +211,6 @@ static derive_t strv_length(char *const *strv) {
   return n;
 }
 
-/* ------------------------------------------------------------------------- */
-/*
-static int sdbus_acquire_default(sd_bus **bus, sdbus_bind_t type) {
-  int r = -1;
-
-  *bus = NULL;
-  switch (type) {
-  case TARGET_LOCAL_USER:
-    r = sd_bus_default_user(bus);
-    break;
-  case TARGET_LOCAL_SYSTEM:
-    r = sd_bus_default_system(bus);
-    break;
-  default:
-    ERROR(LOG_KEY "invalid bus type %d", type);
-    return -1;
-  }
-  if (r < 0) {
-    ERROR(LOG_KEY "failed to connect bus %d with %d", type, r);
-    return r;
-  }
-
-  return 0;
-}
-*/
 /* ------------------------------------------------------------------------- */
 static int sdbus_acquire(sd_bus **bus, sdbus_bind_t type, bool is_monitor) {
   int r;
@@ -342,32 +359,34 @@ static int sdbus_count_activatable(sd_bus *bus, derive_t *activatable) {
 }
 
 /* ------------------------------------------------------------------------- */
-static cdtime_t sdbus_call(sd_bus *bus, const char *service, const char *object,
-                           const char *interface, const char *method) {
+static cdtime_t sdbus_call(sd_bus *bus, const char *destination,
+                           const char *member, const char *interface,
+                           const char *method) {
 
   sd_bus_error error = SD_BUS_ERROR_NULL;
   sd_bus_message *m = NULL;
   cdtime_t latency = ~0;
   int r;
 
-  DEBUG(LOG_KEY "call of 'busctl call %s %s %s %s'", service, object, interface,
-        method);
+  DEBUG(LOG_KEY "call of 'busctl call %s %s %s %s' via %p", destination, member,
+        interface, method, bus);
 
   if (bus == NULL) {
     ERROR(LOG_KEY "call of 'busctl call %s %s %s %s' failed with invalid bus",
-          service, object, interface, method);
+          destination, member, interface, method);
     return 0;
   }
 
   cdtime_t start = cdtime();
-  r = sd_bus_call_method(bus, service, object, interface, method, &error, &m,
-                         "");
+  r = sd_bus_call_method(bus, destination, member, interface, method, &error,
+                         &m, "");
   if (r >= 0) {
     latency = cdtime() - start;
   } else {
-    ERROR(LOG_KEY "call of 'busctl call %s %s %s %s' failed with %d (%s)",
-          service, object, interface, method, r,
-          sdbus_error_message(&error, r));
+    ERROR(LOG_KEY
+          "call of 'busctl call %s %s %s %s' failed with %d (%s) via %p",
+          destination, member, interface, method, r,
+          sdbus_error_message(&error, r), bus);
   }
 
   sd_bus_error_free(&error);
@@ -399,7 +418,7 @@ static void *server_main(void *args) {
   server_info_t *info = (server_info_t *)args;
   int r;
 
-  r = sd_bus_add_object_vtable(*info->bus, &slot, SERVER_OBJECT,
+  r = sd_bus_add_object_vtable(*info->bus, &slot, SERVER_MEMBER,
                                SERVER_INTERFACE, server_vtable, NULL);
   if (r < 0) {
     WARNING(LOG_KEY_SERVER "#%d failed to add object: %s", info->bus_type,
@@ -407,7 +426,7 @@ static void *server_main(void *args) {
     goto finish;
   }
 
-  r = sd_bus_request_name(*info->bus, SERVER_SERVICE, 0);
+  r = sd_bus_request_name(*info->bus, SERVER_DESTINATION, 0);
   if (r < 0) {
     WARNING(LOG_KEY_SERVER "#%d failed to acquire service name: %s",
             info->bus_type, strerror(-r));
@@ -480,7 +499,6 @@ static void *monitor_main(void *args) {
   derive_t *counter = NULL;
 
   server_info_t *info = (server_info_t *)args;
-  info->running = true;
 
   DEBUG(LOG_KEY_MONITOR "#%d monitor main", info->bus_type);
   switch (info->bus_type) {
@@ -495,9 +513,9 @@ static void *monitor_main(void *args) {
     return NULL;
   }
 
-  r = sd_bus_message_new_method_call(*info->bus, &init_message, DBUS_SERVICE,
-                                     DBUS_OBJECT, MONIT_SERVICE,
-                                     MONIT_METHOD_BECOME);
+  r = sd_bus_message_new_method_call(*info->bus, &init_message,
+                                     DBUS_DESTINATION, DBUS_MEMBER,
+                                     MONIT_SERVICE, MONIT_METHOD_BECOME);
   if (r < 0) {
     WARNING(LOG_KEY_MONITOR "#%d failed to create message: %s", info->bus_type,
             strerror(-r));
@@ -524,9 +542,9 @@ static void *monitor_main(void *args) {
   r = sd_bus_call(*info->bus, init_message, 1000000, &error, NULL);
   if (r < 0) {
     ERROR(LOG_KEY_MONITOR
-          "#%d call of 'busctl call %s %s %s %s' failed with %d (%s)",
-          info->bus_type, DBUS_SERVICE, DBUS_OBJECT, MONIT_SERVICE,
-          MONIT_SERVICE, r, sdbus_error_message(&error, r));
+          "#%d call of 'busctl call %s %s %s %s' failed with %d (%s) via %p",
+          info->bus_type, DBUS_DESTINATION, DBUS_MEMBER, MONIT_SERVICE,
+          MONIT_SERVICE, r, sdbus_error_message(&error, r), *info->bus);
     goto finish;
   }
 
@@ -554,13 +572,14 @@ static void *monitor_main(void *args) {
     }
 
     if (m) {
-      DEBUG(LOG_KEY_MONITOR "#%d received message from %s: %s %s %s %s (%s)",
-            info->bus_type, sd_bus_message_get_sender(m),
+      ++*counter;
+
+      DEBUG(LOG_KEY_MONITOR
+            "#%d received message %lu from %s: %s %s %s %s (%s)",
+            info->bus_type, *counter, sd_bus_message_get_sender(m),
             sd_bus_message_get_destination(m), sd_bus_message_get_path(m),
             sd_bus_message_get_interface(m), sd_bus_message_get_member(m),
             sd_bus_message_get_signature(m, 1));
-
-      ++*counter;
 
       if (sd_bus_message_is_signal(m, "org.freedesktop.DBus.Local",
                                    "Disconnected") > 0) {
@@ -708,50 +727,47 @@ static void sdbus_latency_submit(const char *instance, gauge_t value,
 }
 
 /* ------------------------------------------------------------------------- */
-static void sdbus_latency(server_info_t *info, const char *service,
-                          const char *object, const char *interface,
-                          const char *method, const char *key,
+static void sdbus_latency(client_latency_info_t *client,
                           sdbus_latency_t *metric) {
-  DEBUG(LOG_KEY "#%d latency begin (running=%d)", info->bus_type,
-        info->running);
-  if (!info->running)
-    return;
-
-  DEBUG(LOG_KEY "latency running");
-  if (info->bus == NULL)
-    return;
-
-  cdtime_t latency = sdbus_call(*info->bus, service, object, interface, method);
-  if (latency == ~0) {
+  if (*client->bus == NULL) {
+    WARNING(LOG_KEY "latency %s without bus instance", client->name);
     return;
   }
 
-  metric->value = CDTIME_T_TO_US(latency);
-  latency_counter_add(metric->history, latency);
-  DEBUG(LOG_KEY "%s latency %.0fms", key, metric->value);
+  cdtime_t latency =
+      sdbus_call(*client->bus, client->destination, client->member,
+                 client->interface, client->path);
+  if (latency == ~0) {
+    WARNING(LOG_KEY "latency %s failed", client->name);
+    return;
+  }
 
-  sdbus_latency_submit(key, metric->value, metric->history);
+  metric->value = CDTIME_T_TO_US(latency) / 1000.0;
+  latency_counter_add(metric->history, latency);
+  DEBUG(LOG_KEY "%s latency %.1fms", client->name, metric->value);
+
+  sdbus_latency_submit(client->name, metric->value, metric->history);
 }
 
 /* ------------------------------------------------------------------------- */
 static int sdbus_read(void) {
 
-  sdbus_count();
-  sdbus_latency(&user_server, SERVER_SERVICE, SERVER_OBJECT, SERVER_INTERFACE,
-                SERVER_METHOD_PING, "user-local",
-                &sdbus_metric->user_local_latency);
-  sdbus_latency(&user_server, DBUS_SERVICE, DBUS_OBJECT, PEER_INTERFACE,
-                PEER_METHOD_PING, "user-peer",
-                &sdbus_metric->user_peer_latency);
-  sdbus_latency(&system_server, SERVER_SERVICE, SERVER_OBJECT, SERVER_INTERFACE,
-                SERVER_METHOD_PING, "system-local",
-                &sdbus_metric->system_local_latency);
-  sdbus_latency(&system_server, DBUS_SERVICE, DBUS_OBJECT, PEER_INTERFACE,
-                PEER_METHOD_PING, "system-peer",
-                &sdbus_metric->system_peer_latency);
+  if (ENABLE_COUNT) {
+    sdbus_count();
+  }
 
-  monitor_submit("user", sdbus_metric->user_messages);
-  monitor_submit("system", sdbus_metric->system_messages);
+  if (ENABLE_LATENCY) {
+    sdbus_latency(&user_local_ping, &sdbus_metric->user_local_latency);
+    sdbus_latency(&user_peer_ping, &sdbus_metric->user_peer_latency);
+    sdbus_latency(&system_local_ping, &sdbus_metric->system_peer_latency);
+    sdbus_latency(&system_peer_ping, &sdbus_metric->system_peer_latency);
+  }
+  if (ENABLE_MONITOR) {
+    if (user_monitor.running)
+      monitor_submit("user", sdbus_metric->user_messages);
+    if (system_monitor.running)
+      monitor_submit("system", sdbus_metric->system_messages);
+  }
 
   return 0;
 }
@@ -774,51 +790,66 @@ static int sdbus_init(void) {
 
   DEBUG(LOG_KEY "initialize user bus");
   if (sdbus_acquire(&bus_user, TARGET_LOCAL_USER, false) == 0) {
-    DEBUG(LOG_KEY "initialize user server bus");
-    if (sdbus_acquire(&bus_user_server, TARGET_LOCAL_USER, true) != 0)
-      WARNING(LOG_KEY "could not connect to user server bus");
-    DEBUG(LOG_KEY "initialize user monitor bus");
-    if (sdbus_acquire(&bus_user_monitor, TARGET_LOCAL_USER, true) != 0)
-      WARNING(LOG_KEY "could not connect to user monitor bus");
+    if (ENABLE_LATENCY) {
+      DEBUG(LOG_KEY "initialize user server bus");
+      if (sdbus_acquire(&bus_user_server, TARGET_LOCAL_USER, false) != 0)
+        WARNING(LOG_KEY "could not connect to user server bus");
+    }
+    if (ENABLE_MONITOR) {
+      DEBUG(LOG_KEY "initialize user monitor bus");
+      if (sdbus_acquire(&bus_user_monitor, TARGET_LOCAL_USER, true) != 0)
+        WARNING(LOG_KEY "could not connect to user monitor bus");
+    }
   } else {
     WARNING(LOG_KEY "could not connect to user bus");
   }
 
   DEBUG(LOG_KEY "initialize system bus");
   if (sdbus_acquire(&bus_system, TARGET_LOCAL_SYSTEM, false) == 0) {
-    DEBUG(LOG_KEY "initialize system server bus");
-    if (sdbus_acquire(&bus_system_server, TARGET_LOCAL_SYSTEM, true) == 0)
-      WARNING(LOG_KEY "enabling system server failed");
-    DEBUG(LOG_KEY "initialize system monitor bus");
-    if (sdbus_acquire(&bus_system_monitor, TARGET_LOCAL_SYSTEM, true) == 0)
-      WARNING(LOG_KEY "enabling system monitor failed");
+    if (ENABLE_LATENCY) {
+      DEBUG(LOG_KEY "initialize system server bus");
+      if (sdbus_acquire(&bus_system_server, TARGET_LOCAL_SYSTEM, false) != 0)
+        WARNING(LOG_KEY "enabling system server failed");
+    }
+    if (ENABLE_MONITOR) {
+      DEBUG(LOG_KEY "initialize system monitor bus");
+      if (sdbus_acquire(&bus_system_monitor, TARGET_LOCAL_SYSTEM, true) != 0)
+        WARNING(LOG_KEY "enabling system monitor failed");
+    }
   } else {
     WARNING(LOG_KEY "could not connect to system bus");
   }
 
-  server_start(&user_server);
-  server_start(&system_server);
-  monitor_start(&system_monitor);
-  monitor_start(&user_monitor);
+  if (ENABLE_LATENCY) {
+    server_start(&user_server);
+    server_start(&system_server);
+  }
+  if (ENABLE_MONITOR) {
+    monitor_start(&system_monitor);
+    monitor_start(&user_monitor);
+  }
 
   return 0;
 }
 
 /* ------------------------------------------------------------------------- */
 static int sdbus_shutdown(void) {
-  monitor_shutdown(&system_monitor);
-  monitor_shutdown(&user_monitor);
-  server_shutdown(&system_server);
-  server_shutdown(&user_server);
-
-  sdbus_metric_destroy(&sdbus_metric);
-
-  sdbus_close(&bus_system_monitor);
-  sdbus_close(&bus_user_monitor);
-  sdbus_close(&bus_system_server);
-  sdbus_close(&bus_user_server);
+  if (ENABLE_MONITOR) {
+    monitor_shutdown(&system_monitor);
+    monitor_shutdown(&user_monitor);
+    sdbus_close(&bus_system_monitor);
+    sdbus_close(&bus_user_monitor);
+  }
+  if (ENABLE_LATENCY) {
+    server_shutdown(&system_server);
+    server_shutdown(&user_server);
+    sdbus_close(&bus_system_server);
+    sdbus_close(&bus_user_server);
+  }
   sdbus_close(&bus_system);
   sdbus_close(&bus_user);
+
+  sdbus_metric_destroy(&sdbus_metric);
 
   return 0;
 }
