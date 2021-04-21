@@ -556,7 +556,7 @@ static void *monitor_main(void *args) {
     ERROR(LOG_KEY_MONITOR
           "#%d call of 'busctl call %s %s %s %s' failed with %d (%s) via %p",
           info->bus_type, DBUS_DESTINATION, DBUS_MEMBER, MONIT_SERVICE,
-          MONIT_SERVICE, r, sdbus_error_message(&error, r), *info->bus);
+          MONIT_METHOD_BECOME, r, sdbus_error_message(&error, r), *info->bus);
     goto finish;
   }
 
@@ -740,10 +740,8 @@ static void sdbus_latency_submit(const char *instance, gauge_t value,
 /* ------------------------------------------------------------------------- */
 static void sdbus_latency(client_latency_info_t *client,
                           sdbus_latency_t *metric) {
-  if (*client->bus == NULL) {
-    WARNING(LOG_KEY "latency %s without bus instance", client->name);
+  if (*client->bus == NULL)
     return;
-  }
 
   cdtime_t latency =
       sdbus_call(*client->bus, client->destination, client->member,
