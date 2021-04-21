@@ -96,6 +96,7 @@ dist_man_MANS = \
 	src/types.db.5
 
 
+if BUILD_CLIENT_LIBRARY
 nodist_pkgconfig_DATA = \
 	src/libcollectdclient/libcollectdclient.pc
 
@@ -109,6 +110,7 @@ pkginclude_HEADERS = \
 	src/libcollectdclient/collectd/types.h
 
 lib_LTLIBRARIES = libcollectdclient.la
+endif
 
 if BUILD_WIN32
 # TODO: Build all executables on Windows as well.

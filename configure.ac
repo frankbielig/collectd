@@ -6672,8 +6672,11 @@ collectd features:])
 # FIXME: Remove these calls to `AC_COLLECTD' and then remove that macro.
 AC_COLLECTD([debug],     [enable],  [feature], [debugging])
 AC_COLLECTD([daemon],    [disable], [feature], [daemon mode])
+AC_COLLECTD([client_library], [disable],  [feature], [build client library])
 AC_COLLECTD([getifaddrs],[enable],  [feature], [getifaddrs under Linux])
 AC_COLLECTD([werror],    [disable], [feature], [building with -Werror])
+
+AM_CONDITIONAL([BUILD_CLIENT_LIBRARY], [test "x$enable_client_library" = "xyes"])
 
 dependency_warning="no"
 dependency_error="no"
@@ -7579,6 +7582,7 @@ AC_MSG_RESULT()
 AC_MSG_RESULT([  Features:])
 AC_MSG_RESULT([    daemon mode . . . . . $enable_daemon])
 AC_MSG_RESULT([    debug . . . . . . . . $enable_debug])
+AC_MSG_RESULT([    client library. . . . $enable_client_library])
 AC_MSG_RESULT()
 AC_MSG_RESULT([  Bindings:])
 AC_MSG_RESULT([    perl  . . . . . . . . $with_perl_bindings])
